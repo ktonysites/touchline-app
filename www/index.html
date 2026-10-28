@@ -337,7 +337,7 @@ nav.tabs a svg{flex:none}
       <aside class="stack">
         <div class="ai">
           <div class="ai-head"><h2>AI value scan</h2><button class="btn primary" id="scanbtn" type="button">Scan fixtures</button></div>
-          <div class="ai-out" id="scanout"><p class="muted">Claude reviews the upcoming fixtures in the selected competition and picks the most promising betting angles, with the risks.</p></div>
+          <div class="ai-out" id="scanout"><p class="muted">The AI reviews the upcoming fixtures in the selected competition and picks the most promising betting angles, with the risks.</p></div>
         </div>
         <div class="panel key"><h3>Key</h3>
           <div class="key-row"><span class="mini" style="width:56px"><i style="flex:5;background:var(--home)"></i><i style="flex:3;background:var(--draw)"></i><i style="flex:2;background:var(--away)"></i></span><span>Home · draw · away probability</span></div>
@@ -469,11 +469,23 @@ nav.tabs a svg{flex:none}
       </div>
       <div class="panel stack">
         <h3>AI analyst</h3>
-        <div class="field"><label for="s-ai">Claude API key</label>
-          <div class="keyrow"><input type="password" id="s-ai" placeholder="sk-ant-…" style="background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:8px 10px;font-family:var(--f-mono)"><button type="button" class="btn" data-show="s-ai">Show</button></div>
-          <p class="note" style="margin:2px 0 0">Create one in the <a href="https://console.anthropic.com/" target="_blank" rel="noopener">Claude Console</a>. Usage is billed to your API account.</p></div>
-        <div class="field"><label for="s-model">Model</label>
-          <select id="s-model"><option value="claude-sonnet-5-5">Claude Sonnet 5.5 · balanced (recommended)</option><option value="claude-haiku-5-5">Claude Haiku 5.5 · fastest, lowest cost</option><option value="claude-opus-5-5">Claude Opus 5.5 · most thorough</option></select></div>
+        <div class="field"><label for="s-prov">AI provider</label>
+          <select id="s-prov"><option value="gemini">Google Gemini · free tier available</option><option value="claude">Anthropic Claude · paid API</option></select></div>
+        <div class="stack" id="s-gem" style="gap:10px">
+          <div class="field"><label for="s-gkey">Gemini API key</label>
+            <div class="keyrow"><input type="password" id="s-gkey" placeholder="AIza…" style="background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:8px 10px;font-family:var(--f-mono)"><button type="button" class="btn" data-show="s-gkey">Show</button></div>
+            <p class="note" style="margin:2px 0 0">Free from <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">Google AI Studio</a> (sign in with a Google account, then Create API key). The free tier has daily limits, and Google's terms allow it to use free-tier requests to improve its products.</p></div>
+          <div class="field"><label for="s-gmodel">Gemini model</label>
+            <div class="keyrow"><input id="s-gmodel" list="s-gmodels" style="background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:8px 10px;font-family:var(--f-mono)"><datalist id="s-gmodels"></datalist><button type="button" class="btn" id="s-gload">Load models</button></div>
+            <p class="note" style="margin:2px 0 0"><code>gemini-flash-latest</code> always points to Google's current fast model. Tap <strong>Load models</strong> to pick from the models your key can use.</p></div>
+        </div>
+        <div class="stack" id="s-cla" style="gap:10px">
+          <div class="field"><label for="s-ai">Claude API key</label>
+            <div class="keyrow"><input type="password" id="s-ai" placeholder="sk-ant-…" style="background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:8px 10px;font-family:var(--f-mono)"><button type="button" class="btn" data-show="s-ai">Show</button></div>
+            <p class="note" style="margin:2px 0 0">Create one in the <a href="https://console.anthropic.com/" target="_blank" rel="noopener">Claude Console</a>. Usage is billed to your API account.</p></div>
+          <div class="field"><label for="s-model">Claude model</label>
+            <select id="s-model"><option value="claude-sonnet-5-5">Claude Sonnet 5.5 · balanced (recommended)</option><option value="claude-haiku-5-5">Claude Haiku 5.5 · fastest, lowest cost</option><option value="claude-opus-5-5">Claude Opus 5.5 · most thorough</option></select></div>
+        </div>
       </div>
       <div class="panel stack">
         <h3>Bankroll &amp; limits</h3>
@@ -681,7 +693,7 @@ const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 function lsGet(k,d){try{const v=localStorage.getItem(k);return v?JSON.parse(v):d}catch{return d}}
 function lsSet(k,v){try{localStorage.setItem(k,JSON.stringify(v))}catch{}}
 const ALL_COMPS=["PL","PD","SA","BL1","FL1","CL","ELC","DED","PPL","BSA"];
-const DEFAULTS={fdKey:"",aiKey:"",model:"claude-sonnet-5-5",comps:["PL","PD","SA","BL1","FL1","CL"],bankroll:1000,unitPct:1,lossLimit:0};
+const DEFAULTS={fdKey:"",aiProvider:"gemini",geminiKey:"",geminiModel:"gemini-flash-latest",aiKey:"",model:"claude-sonnet-5-5",comps:["PL","PD","SA","BL1","FL1","CL"],bankroll:1000,unitPct:1,lossLimit:0};
 let SET=Object.assign({},DEFAULTS,lsGet("touchline.settings",{}));
 function toast(msg){const t=document.createElement("div");t.className="toast";t.setAttribute("role","status");t.textContent=msg;document.body.appendChild(t);setTimeout(()=>t.remove(),2800)}
 
@@ -749,21 +761,43 @@ For a full analysis use these headings, each on its own line starting with "## "
   scan:`You are Touchline's football betting analyst. The user sends upcoming fixtures with Touchline's model numbers (win/draw/loss %, expected goals, over 2.5 %, both-teams-to-score %, form and table position). Work only from that data.
 Pick the 3 to 5 most interesting betting angles. For each give the match, the selection, the probability you'd use, the minimum decimal odds needed for value (1 / probability), and one line on the main risk. Then a short paragraph on what to check before betting (team news, lineups, prices). Never guarantee outcomes; recommend small fixed stakes.
 Format: "## Top angles" with "- " bullets, then "## Before you bet". Under 260 words.`};
+const GEM="https://generativelanguage.googleapis.com/v1beta";
+async function callGemini(key,model,system,messages,maxTokens){
+  const r=await fetch(`${GEM}/models/${encodeURIComponent(model)}:generateContent`,{method:"POST",headers:{"x-goog-api-key":key,"content-type":"application/json"},
+    body:JSON.stringify({system_instruction:system?{parts:[{text:system}]}:undefined,
+      contents:messages.map(m=>({role:m.role==="assistant"?"model":"user",parts:[{text:m.content}]})),
+      generationConfig:{maxOutputTokens:maxTokens||2048,temperature:.6}})});
+  const j=await r.json().catch(()=>({}));
+  if(!r.ok){const m=(j.error&&j.error.message)||("error "+r.status);
+    const err=new Error(r.status===429?"The Gemini free quota is used up for now. Wait a minute (or until tomorrow for the daily limit) and try again.":
+      /API key not valid|API_KEY_INVALID/i.test(m)?"The Gemini API key was rejected. Check it in Settings.":
+      r.status===404?`The model "${model}" isn't available to your key. Pick another with Load models in Settings.`:"The AI request failed: "+m);err.status=r.status;throw err}
+  const c=(j.candidates||[])[0];
+  const text=c&&c.content&&(c.content.parts||[]).map(x=>x.text||"").join("");
+  if(!text){const why=(j.promptFeedback&&j.promptFeedback.blockReason)||(c&&c.finishReason)||"no text";throw new Error(`Gemini returned no answer (${why}). Try again or rephrase.`)}
+  return text;
+}
+async function callClaude(key,model,system,messages,maxTokens){
+  const r=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",
+    headers:{"x-api-key":key,"anthropic-version":"2023-06-01","content-type":"application/json","anthropic-dangerous-direct-browser-access":"true"},
+    body:JSON.stringify({model,max_tokens:maxTokens||1000,system,messages})});
+  const j=await r.json().catch(()=>({}));
+  if(!r.ok){const m=j&&j.error&&j.error.message||("error "+r.status);
+    throw new Error(r.status===401?"The Claude API key was rejected. Check it in Settings.":r.status===429?"The Claude API is rate limiting requests. Wait a minute and try again.":"The AI request failed: "+m)}
+  return (j.content||[]).filter(x=>x.type==="text").map(x=>x.text).join("");
+}
+const aiReady=()=>SET.aiProvider==="claude"?!!SET.aiKey:!!SET.geminiKey;
 async function streamAI(outEl,btn,payload){
-  if(!SET.aiKey){outEl.innerHTML=`<p class="muted">Add your Claude API key in <a href="#settings">Settings</a> to use the AI analyst.</p>`;return""}
+  if(!aiReady()){outEl.innerHTML=`<p class="muted">Add your ${SET.aiProvider==="claude"?"Claude":"free Gemini"} API key in <a href="#settings">Settings</a> to use the AI analyst.</p>`;return""}
   const label=btn.textContent;btn.textContent="Thinking…";btn.dataset.busy="1";btn.disabled=true;
   const t0=Date.now();outEl.innerHTML=`<p class="muted" id="aitick">Thinking…</p>`;
   const tick=setInterval(()=>{const el=outEl.querySelector("#aitick");if(el)el.textContent=`Thinking… ${Math.round((Date.now()-t0)/1000)}s`},1000);
   let text="";
   try{
-    const r=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",
-      headers:{"x-api-key":SET.aiKey,"anthropic-version":"2023-06-01","content-type":"application/json","anthropic-dangerous-direct-browser-access":"true"},
-      body:JSON.stringify({model:SET.model,max_tokens:1000,system:SYSTEM[payload.mode],messages:payload.messages})});
-    const j=await r.json().catch(()=>({}));
-    if(!r.ok){const m=j&&j.error&&j.error.message||("error "+r.status);
-      outEl.innerHTML=`<p class="muted">${r.status===401?"The Claude API key was rejected. Check it in Settings.":r.status===429?"The Claude API is rate limiting requests. Wait a minute and try again.":"The AI request failed: "+esc(m)}</p>`;return""}
-    text=(j.content||[]).filter(x=>x.type==="text").map(x=>x.text).join("");outEl.innerHTML=md(text);
-  }catch(e){outEl.innerHTML=`<p class="muted">Couldn't reach the AI service. Check your internet connection and try again.</p>`}
+    text=SET.aiProvider==="claude"?await callClaude(SET.aiKey,SET.model,SYSTEM[payload.mode],payload.messages)
+      :await callGemini(SET.geminiKey,SET.geminiModel||"gemini-flash-latest",SYSTEM[payload.mode],payload.messages);
+    outEl.innerHTML=md(text);
+  }catch(e){outEl.innerHTML=`<p class="muted">${e.message&&e.message!=="Failed to fetch"?esc(e.message):"Couldn't reach the AI service. Check your internet connection and try again."}</p>`;text=""}
   finally{clearInterval(tick);btn.textContent=label;btn.disabled=false;delete btn.dataset.busy}
   return text;
 }
@@ -841,15 +875,22 @@ $("betsout").addEventListener("click",e=>{const r=e.target.closest(".betrow");if
 $("betsout").addEventListener("change",e=>{const i=e.target.closest("[data-stake]");if(!i)return;const b=BETS.find(x=>x.id===i.dataset.stake);if(b){b.stake=Math.max(0,+i.value||0);saveBets();renderBets()}});
 
 /* ---------- settings view ---------- */
+function provView(){const g=$("s-prov").value==="gemini";$("s-gem").hidden=!g;$("s-cla").hidden=g}
+$("s-prov").addEventListener("change",provView);
+$("s-gload").addEventListener("click",async()=>{const k=$("s-gkey").value.trim(),st=$("s-status");if(!k){st.textContent="Enter your Gemini API key first.";return}
+  st.textContent="Loading Gemini models…";try{const r=await fetch(`${GEM}/models?pageSize=200`,{headers:{"x-goog-api-key":k}});const j=await r.json().catch(()=>({}));
+    if(!r.ok){st.textContent="Couldn't load models: "+((j.error&&j.error.message)||r.status);return}
+    const ms=(j.models||[]).filter(m=>(m.supportedGenerationMethods||[]).includes("generateContent")).map(m=>m.name.replace(/^models\//,"")).filter(n=>/gemini/.test(n));
+    $("s-gmodels").innerHTML=["gemini-flash-latest"].concat(ms).map(n=>`<option value="${esc(n)}">`).join("");st.textContent=`${ms.length} Gemini models available. Tap the model box to choose one.`}catch{st.textContent="Couldn't reach Google's API."}});
 function renderSettings(){
-  $("s-fd").value=SET.fdKey;$("s-ai").value=SET.aiKey;$("s-model").value=SET.model;$("s-bank").value=SET.bankroll;$("s-unit").value=SET.unitPct;$("s-limit").value=SET.lossLimit;
+  $("s-fd").value=SET.fdKey;$("s-prov").value=SET.aiProvider;$("s-gkey").value=SET.geminiKey;$("s-gmodel").value=SET.geminiModel;provView();$("s-ai").value=SET.aiKey;$("s-model").value=SET.model;$("s-bank").value=SET.bankroll;$("s-unit").value=SET.unitPct;$("s-limit").value=SET.lossLimit;
   $("s-comps").innerHTML=ALL_COMPS.map(c=>`<label class="chk"><input type="checkbox" value="${c}" ${SET.comps.includes(c)?"checked":""}> ${esc(NAMES[c]||c)}</label>`).join("");
 }
 $("setform").addEventListener("click",e=>{const b=e.target.closest("[data-show]");if(!b)return;const i=$(b.dataset.show);i.type=i.type==="password"?"text":"password";b.textContent=i.type==="password"?"Show":"Hide"});
 $("setform").addEventListener("submit",e=>{e.preventDefault();
   const comps=[...$("s-comps").querySelectorAll("input:checked")].map(i=>i.value);
   const keyChanged=SET.fdKey!==$("s-fd").value.trim(),compsChanged=comps.join()!==SET.comps.join();
-  SET=Object.assign(SET,{fdKey:$("s-fd").value.trim(),aiKey:$("s-ai").value.trim(),model:$("s-model").value,comps:comps.length?comps:["PL"],
+  SET=Object.assign(SET,{fdKey:$("s-fd").value.trim(),aiProvider:$("s-prov").value,geminiKey:$("s-gkey").value.trim(),geminiModel:$("s-gmodel").value.trim()||"gemini-flash-latest",aiKey:$("s-ai").value.trim(),model:$("s-model").value,comps:comps.length?comps:["PL"],
     bankroll:Math.max(0,+$("s-bank").value||0),unitPct:clamp(+$("s-unit").value||1,.1,10),lossLimit:Math.max(0,+$("s-limit").value||0)});
   lsSet("touchline.settings",SET);$("s-status").textContent="Settings saved.";toast("Settings saved");
   if(keyChanged||compsChanged){C.matchesUpdated=null;refreshAll(true)}else publish()});
@@ -857,9 +898,11 @@ $("s-test").addEventListener("click",async function(){
   const out=$("s-status");out.textContent="Testing…";const fdk=$("s-fd").value.trim(),aik=$("s-ai").value.trim();const res=[];
   if(fdk){try{const r=await fetch(FD+"/competitions/PL",{headers:{"X-Auth-Token":fdk}});res.push(r.ok?"Match data key works.":`Match data key failed (${r.status}).`)}catch{res.push("Couldn't reach football-data.org.")}}
   else res.push("No match data key entered.");
-  if(aik){try{const r=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:{"x-api-key":aik,"anthropic-version":"2023-06-01","content-type":"application/json","anthropic-dangerous-direct-browser-access":"true"},body:JSON.stringify({model:$("s-model").value,max_tokens:5,messages:[{role:"user",content:"Reply OK"}]})});
-      const j=await r.json().catch(()=>({}));res.push(r.ok?"Claude API key works.":`Claude API key failed: ${(j.error&&j.error.message)||r.status}.`)}catch{res.push("Couldn't reach the Claude API.")}}
-  else res.push("No Claude API key entered; the AI analyst stays off.");
+  const prov=$("s-prov").value,gk=$("s-gkey").value.trim(),gm=$("s-gmodel").value.trim()||"gemini-flash-latest";
+  if(prov==="gemini"){if(gk){try{await callGemini(gk,gm,"",[{role:"user",content:"Reply with the single word OK."}],64);res.push(`Gemini key works with ${gm}.`)}catch(e){res.push(e.message||"Couldn't reach Gemini.")}}
+    else res.push("No Gemini key entered; the AI analyst stays off.")}
+  else{if(aik){try{await callClaude(aik,$("s-model").value,undefined,[{role:"user",content:"Reply OK"}],5);res.push("Claude API key works.")}catch(e){res.push(e.message||"Couldn't reach the Claude API.")}}
+    else res.push("No Claude API key entered; the AI analyst stays off.")}
   out.textContent=res.join(" ")});
 $("s-clear").addEventListener("click",()=>{C.comps={};C.matches=[];C.matchesUpdated=null;C.errors=[];lsSet("touchline.cache",C);toast("Cached match data cleared");refreshAll(true)});
 
@@ -923,7 +966,7 @@ function renderAnalyzer(){
   </div>
   <div class="ai">
     <div class="ai-head"><h2>AI analyst</h2><button class="btn primary" type="button" id="aibtn">${aiFor===f.id?"Re-run analysis":"Analyze this match"}</button></div>
-    <div class="ai-out" id="aiout">${aiFor===f.id&&lastAI?lastAI:`<p class="muted">Claude reads both clubs' records, form, the model's numbers, your conditions, team news and prices, then gives a verdict, the key factors, markets worth a look and the risks.</p>`}</div>
+    <div class="ai-out" id="aiout">${aiFor===f.id&&lastAI?lastAI:`<p class="muted">The AI analyst reads both clubs' records, form, the model's numbers, your conditions, team news and prices, then gives a verdict, the key factors, markets worth a look and the risks.</p>`}</div>
     <form class="ai-q" id="aiq"><input id="aiqin" aria-label="Ask a follow-up question" placeholder="Ask a follow-up, e.g. Is the draw worth it at 3.60?"><button class="btn" type="submit">Ask</button></form>
   </div>
   <div class="grid-2">
