@@ -1,6 +1,6 @@
 # Touchline
 
-An Android app for analyzing football matches and guiding betting decisions: live scores, fixtures, league tables with club crests, a match model that turns team strength and conditions into probabilities and fair odds, a value finder, a bet tracker, and an AI analyst powered by Claude.
+An Android app for analyzing football matches and guiding betting decisions: live scores, fixtures, league tables with club crests, a match model that turns team strength and conditions into probabilities and fair odds, a value finder, a bet tracker, and an AI analyst powered by Google Gemini (free) or Anthropic Claude.
 
 ## Install the app
 
@@ -16,7 +16,9 @@ Every push to `main` builds a new APK automatically through GitHub Actions. Late
 The app runs entirely on your phone. There is no server: the keys you enter are stored only on the device.
 
 - **Match data:** a free key from [football-data.org](https://www.football-data.org/client/register), sent by email after you register. The free plan covers the Premier League, La Liga, Serie A, Bundesliga, Ligue 1, Champions League, Championship, Eredivisie, Primeira Liga and Brasileirão, at 10 requests per minute. Live scores on the free plan can run slightly behind real time.
-- **AI analyst (optional):** a Claude API key from the [Claude Console](https://console.anthropic.com/). API use is billed to your account. Pick the model in Settings: Sonnet 5.5 is the balanced default, Haiku 5.5 is the cheapest and Opus 5.5 the most thorough.
+- **AI analyst (optional, free option):** choose the provider in Settings.
+  - **Google Gemini (default, free tier):** create a key at [Google AI Studio](https://aistudio.google.com/apikey) with any Google account. The model defaults to `gemini-flash-latest`, which always points to Google's current fast model; tap **Load models** to choose another. The free tier has per-minute and daily limits, and Google's terms let it use free-tier requests to improve its products.
+  - **Anthropic Claude (paid):** a key from the [Claude Console](https://console.anthropic.com/), billed per request. Choose Sonnet 5.5, Haiku 5.5 or Opus 5.5.
 
 Use **Test keys** in Settings to check both.
 
