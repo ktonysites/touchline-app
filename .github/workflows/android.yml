@@ -14,18 +14,16 @@ jobs:
     env:
       KEYSTORE_B64: ${{ secrets.DEBUG_KEYSTORE_BASE64 }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: 22
 
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: 21
-
-      - uses: android-actions/setup-android@v3
 
       # Reuse the same signing key between builds so new APKs install over old ones.
       - name: Restore signing key
@@ -37,6 +35,9 @@ jobs:
       - name: Use signing key from secrets (optional)
         if: env.KEYSTORE_B64 != ''
         run: mkdir -p ~/.android && echo "$KEYSTORE_B64" | base64 -d > ~/.android/debug.keystore
+
+      - name: Accept Android SDK licences
+        run: yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
 
       - name: Install packages
         run: npm install --no-audit --no-fund
