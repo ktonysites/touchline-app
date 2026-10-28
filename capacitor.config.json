@@ -1,0 +1,9 @@
+{
+  "appId": "com.touchline.analytics",
+  "appName": "Touchline",
+  "webDir": "www",
+  "android": { "allowMixedContent": false },
+  "plugins": {
+    "CapacitorHttp": { "enabled": true }
+  }
+}
