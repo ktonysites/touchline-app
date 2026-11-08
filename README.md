@@ -53,3 +53,21 @@ Builds are signed with a debug key that GitHub Actions keeps in its cache, so up
 ## Betting responsibly
 
 The probabilities here are estimates and will often be wrong. Bet only what you can afford to lose, set limits before you start, and take a break if betting stops being fun.
+
+## Prediction model (v2) and backtest
+
+Touchline fits a time-weighted Dixon–Coles Poisson model on every finished league match this season plus last season (last season from the free [openfootball](https://github.com/openfootball/football.json) archive, falling back to football-data.org). Recent games count more (half-life 180 days by default, set by the form slider); newly promoted clubs start below average.
+
+Walk-forward test on 6,948 top-five-league matches, 2022-23 to 2025-26, each predicted using only results known before kick-off:
+
+| Model | RPS (lower = better) | Log loss | Right result | Over/Under 2.5 log loss |
+|---|---|---|---|---|
+| Base rates only | 0.2317 | 1.069 | 44.5% | 0.687 |
+| Old Touchline model | 0.2165 | 1.029 | 49.4% | 0.702 |
+| **New model** | **0.2028** | **0.986** | **53.0%** | **0.682** |
+
+The old model was overconfident (its 80–90% favourites won 75%) and its Over/Under 2.5 was worse than base rates. The new model is calibrated (70–80% predictions came in 74.5% of the time).
+
+Re-run it: `sh backtest/fetch-data.sh && node backtest/backtest.js '{}' 2022-23,2023-24,2024-25,2025-26`. The backtest loads the model directly from `www/index.html`.
+
+In the app, **Matches → Prediction check** runs the same walk-forward test on the current season, and recent results show what the model said before kick-off.
