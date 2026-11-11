@@ -85,6 +85,8 @@ h3{font-size:12px;font-family:var(--f-mono);font-weight:500;text-transform:upper
 .btn:hover{border-color:var(--muted)}
 .btn[aria-pressed="true"]{background:var(--ink);color:var(--surface);border-color:var(--ink)}
 .btn.primary{background:var(--accent);color:#fff;border-color:var(--accent)}
+.btn.stop{background:var(--surface-2);color:var(--ink);border-color:var(--line)}
+.ai-cursor{animation:aipulse 1.2s ease-in-out infinite}@keyframes aipulse{50%{opacity:.4}}@media (prefers-reduced-motion:reduce){.ai-cursor{animation:none}}
 
 /* scoreboard */
 .board{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:12px;padding-block:6px 14px;border-bottom:1px solid var(--line);margin-bottom:14px}
@@ -536,20 +538,26 @@ function markets(g,oh,oa){oh=oh||0;oa=oa||0;const o={p1:0,px:0,p2:0,btts:0,cs_h:
   o.dc["1X"]=o.p1+o.px;o.dc["X2"]=o.px+o.p2;o.dc["12"]=o.p1+o.p2;return o}
 
 /* Default tuned parameters (see backtest/README) */
-const P={halfLife:180,reg:6,prevW:0.6,rho:-0.05,promA:-0.18,promD:0.16,iters:40};
+const P={halfLife:180,reg:6,prevW:0.6,rho:-0.05,promA:-0.18,promD:0.16,iters:40,cap:0,hReg:0,fitRho:false,rhoReg:0,
+  /* v3: Elo ensemble and goal-total shrink, tuned on 2022-24 and tested on 2024-26 (see README) */
+  eloK:20,eloH:70,eloProm:-90,eloRev:0.9,eloB:0.65,eloCH:0.70,eloCA:0.45,ensW:0.5,totShrink:0.6};
 
-/* fit(matches,{now,halfLife,reg,prevW,prevTeams})
+/* fit(matches,{now,halfLife,reg,prevW,prevTeams,cap,hReg,fitRho})
    matches: [{h,a,hg,ag,t (ms),prev (bool: last season)}]
-   prevTeams: Set of team ids that played last season (others are promoted). */
+   prevTeams: Set of team ids that played last season (others are promoted).
+   cap: goals above this count as this many when rating teams (stops one 7-0 from dominating).
+   hReg: >0 gives each club its own home advantage, shrunk toward the league's by this much.
+   fitRho: estimate the low-score (draw) correction per league instead of using a fixed value. */
 function fit(ms,o){o=Object.assign({},P,o||{});const now=o.now||Date.now(),xi=Math.LN2/(o.halfLife*864e5);
-  const T={},teams=[];const add=id=>{if(!T[id]){T[id]={a:0,d:0,pa:0,pd:0,n:0};teams.push(id)}};
+  const T={},teams=[];const add=id=>{if(!T[id]){T[id]={a:0,d:0,h:0,pa:0,pd:0,n:0};teams.push(id)}};
+  const cp=g=>o.cap>0?Math.min(g,o.cap):g;
   const M=[];for(const m of ms){if(m.t>=now||m.hg==null||m.ag==null)continue;const w=Math.exp(-xi*(now-m.t))*(m.prev?o.prevW:1);if(w<1e-3)continue;
-    add(m.h);add(m.a);M.push({h:m.h,a:m.a,hg:m.hg,ag:m.ag,w});T[m.h].n+=m.prev?0:1;T[m.a].n+=m.prev?0:1}
+    add(m.h);add(m.a);M.push({h:m.h,a:m.a,hg:cp(m.hg),ag:cp(m.ag),rh:m.hg,ra:m.ag,w});T[m.h].n+=m.prev?0:1;T[m.a].n+=m.prev?0:1}
   if(o.prevTeams&&o.prevTeams.size)teams.forEach(id=>{if(!o.prevTeams.has(id)){T[id].pa=o.promA;T[id].pd=o.promD;T[id].a=o.promA;T[id].d=o.promD}});
-  let sw=0,sg=0,sh=0,sa=0;M.forEach(m=>{sw+=m.w;sg+=m.w*(m.hg+m.ag);sh+=m.w*m.hg;sa+=m.w*m.ag});
+  let sw=0,sh=0,sa=0;M.forEach(m=>{sw+=m.w;sh+=m.w*m.hg;sa+=m.w*m.ag});
   let mu=Math.log(Math.max(sa/Math.max(sw,1e-9),0.5))||Math.log(1.2),hfa=Math.log(Math.max(sh,1e-9)/Math.max(sa,1e-9))||0.25;
   if(!isFinite(mu))mu=Math.log(1.2);if(!isFinite(hfa))hfa=0.25;
-  const lam=()=>M.forEach(m=>{m.lh=Math.exp(mu+hfa+T[m.h].a+T[m.a].d);m.la=Math.exp(mu+T[m.a].a+T[m.h].d)});
+  const lam=()=>M.forEach(m=>{m.lh=Math.exp(mu+hfa+T[m.h].h+T[m.h].a+T[m.a].d);m.la=Math.exp(mu+T[m.a].a+T[m.h].d)});
   for(let it=0;it<o.iters&&M.length;it++){
     lam();let g=0,H=0;M.forEach(m=>{g+=m.w*(m.hg-m.lh+m.ag-m.la);H+=m.w*(m.lh+m.la)});mu+=g/H;
     lam();g=0;H=0;M.forEach(m=>{g+=m.w*(m.hg-m.lh);H+=m.w*m.lh});hfa+=g/(H+2)-(hfa-0.25)*2/(H+2);
@@ -557,18 +565,53 @@ function fit(ms,o){o=Object.assign({},P,o||{});const now=o.now||Date.now(),xi=Ma
     M.forEach(m=>{ga[m.h]+=m.w*(m.hg-m.lh);ha[m.h]+=m.w*m.lh;ga[m.a]+=m.w*(m.ag-m.la);ha[m.a]+=m.w*m.la});teams.forEach(id=>T[id].a+=ga[id]/ha[id]);
     lam();const gd={},hd={};teams.forEach(id=>{gd[id]=-o.reg*(T[id].d-T[id].pd);hd[id]=o.reg});
     M.forEach(m=>{gd[m.a]+=m.w*(m.hg-m.lh);hd[m.a]+=m.w*m.lh;gd[m.h]+=m.w*(m.ag-m.la);hd[m.h]+=m.w*m.la});teams.forEach(id=>T[id].d+=gd[id]/hd[id]);
+    if(o.hReg>0){lam();const gh={},hh={};teams.forEach(id=>{gh[id]=-o.hReg*T[id].h;hh[id]=o.hReg});
+      M.forEach(m=>{gh[m.h]+=m.w*(m.hg-m.lh);hh[m.h]+=m.w*m.lh});teams.forEach(id=>T[id].h+=gh[id]/hh[id])}
   }
-  return{mu,hfa,T,n:M.length,promA:o.promA,promD:o.promD,rho:o.rho,prevTeams:o.prevTeams||null};
+  let rho=o.rho;
+  if(o.fitRho&&M.length>=40){lam();let best=-Infinity;
+    for(let r=-0.25;r<=0.1001;r+=0.005){let ll=-o.rhoReg*(r-o.rho)*(r-o.rho);
+      for(const m of M){const x=m.rh,y=m.ra;let t=1;if(x===0&&y===0)t=1-m.lh*m.la*r;else if(x===0&&y===1)t=1+m.lh*r;else if(x===1&&y===0)t=1+m.la*r;else if(x===1&&y===1)t=1-r;else continue;
+        ll+=m.w*Math.log(Math.max(t,1e-6))}
+      if(ll>best){best=ll;rho=r}}}
+  return{mu,hfa,T,n:M.length,promA:o.promA,promD:o.promD,rho,prevTeams:o.prevTeams||null};
 }
 /* Expected goals for a fixture. Unknown teams get the promoted-side prior when last season is known, else average. */
 function expect(md,h,a,opt){opt=opt||{};const dflt=(md.prevTeams&&md.prevTeams.size)?{a:md.promA,d:md.promD}:{a:0,d:0};
-  const th=md.T[h]||dflt,ta=md.T[a]||dflt,hf=opt.neutral?0:md.hfa;
+  const th=md.T[h]||dflt,ta=md.T[a]||dflt,hf=opt.neutral?0:md.hfa+(th.h||0);
   return{lh:Math.exp(md.mu+hf+th.a+ta.d),la:Math.exp(md.mu+ta.a+th.d),known:!!(md.T[h]&&md.T[a])}}
+/* Elo ratings from results in date order (only games before o.now). A gap of 40+ days marks a new season:
+   ratings regress toward the mean and clubs not seen before start below it (promoted sides). */
+function elo(ms,o){o=Object.assign({},P,o||{});const now=o.now||Date.now(),E={};let last=null,seasons=0;
+  const list=ms.filter(m=>m.t<now&&m.hg!=null&&m.ag!=null).slice().sort((x,y)=>x.t-y.t);
+  const mean=()=>{const k=Object.keys(E);return k.length?k.reduce((s,x)=>s+E[x],0)/k.length:1500};
+  for(const m of list){
+    if(last!=null&&m.t-last>40*864e5){seasons++;const mn=mean();for(const k in E)E[k]=mn+(E[k]-mn)*o.eloRev}
+    last=m.t;
+    for(const id of [m.h,m.a])if(E[id]==null)E[id]=seasons?mean()+o.eloProm:1500;
+    const dr=E[m.h]+o.eloH-E[m.a],ex=1/(1+Math.pow(10,-dr/400)),r=m.hg>m.ag?1:m.hg===m.ag?.5:0,gd=Math.abs(m.hg-m.ag);
+    const ch=o.eloK*(gd<=1?1:gd===2?1.5:(11+gd)/8)*(r-ex);E[m.h]+=ch;E[m.a]-=ch}
+  return{E,H:o.eloH,mean:mean(),seasons}}
+/* Elo difference to home/draw/away (ordered logistic fitted on the backtest) */
+function eloProbs(dr,o){o=Object.assign({},P,o||{});const sg=x=>1/(1+Math.exp(-x));
+  const ph=sg(o.eloB*dr/100-o.eloCH),pa=sg(-o.eloB*dr/100-o.eloCA),px=Math.max(.02,1-ph-pa),t=ph+px+pa;return[ph/t,px/t,pa/t]}
+/* Final forecast: Dixon-Coles goals, extreme goal totals pulled toward the league's average (the raw model was
+   overconfident on Over/Under), then the home/away split set so the score grid matches the Dixon-Coles + Elo blend.
+   Every market comes from one consistent score grid. */
+function forecast(md,el,h,a,opt){opt=Object.assign({},P,opt||{});const e=expect(md,h,a,opt);let lh=e.lh,la=e.la;
+  const Tm=Math.exp(md.mu+(opt.neutral?0:md.hfa))+Math.exp(md.mu),T=lh+la,T2=Tm*Math.pow(T/Tm,opt.totShrink);lh*=T2/T;la*=T2/T;
+  const dcGrid=scoreGrid(lh,la,md.rho),dc=markets(dcGrid);
+  if(!el||el.E[h]==null||el.E[a]==null)return{lh,la,known:e.known,dc:[dc.p1,dc.px,dc.p2],elo:null,grid:dcGrid};
+  const dr=el.E[h]+(opt.neutral?0:el.H)-el.E[a],ep=eloProbs(dr,opt),w=opt.ensW;
+  const target=w*(dc.p1-dc.p2)+(1-w)*(ep[0]-ep[2]);
+  let lo=-.97,hi=.97,s=(la-lh)/T2*-1,g=dcGrid;
+  for(let k=0;k<28;k++){s=(lo+hi)/2;g=scoreGrid(T2*(1+s)/2,T2*(1-s)/2,md.rho);const mk=markets(g);if(mk.p1-mk.p2<target)lo=s;else hi=s}
+  return{lh:T2*(1+s)/2,la:T2*(1-s)/2,known:e.known,dc:[dc.p1,dc.px,dc.p2],elo:ep,eloDiff:dr,grid:g}}
 /* Remaining-goal share for in-play: goal rate rises through a match (~+50% from first to last minute) and stoppage time adds ~6 minutes. */
 function remainingShare(minute){const m=Math.max(0,Math.min(96,minute)),r=t=>t+0.25*t*t/96;return Math.max(0,(r(96)-r(m))/r(96))}
 /* Remove the bookmaker margin (proportional) */
 function devig(o){const inv=o.map(x=>x>1?1/x:0),s=inv.reduce((a,b)=>a+b,0);return s>0?inv.map(x=>x/s):null}
-return{pmf,scoreGrid,markets,fit,expect,remainingShare,devig,P};
+return{pmf,scoreGrid,markets,fit,expect,elo,eloProbs,forecast,remainingShare,devig,P};
 })();
 
 const NAMES={PL:"Premier League",PD:"La Liga",SA:"Serie A",BL1:"Bundesliga",FL1:"Ligue 1",CL:"Champions League",ELC:"Championship",DED:"Eredivisie",PPL:"Primeira Liga",BSA:"Brasileirão",EC:"Euros",WC:"World Cup"};
@@ -635,7 +678,9 @@ function modelFor(c,hl,asOf){
   const pv=R.prev&&R.prev.matches.length?R.prev.matches.map(m=>Object.assign({prev:true},m)):[];
   const now=asOf||Date.now(),n=cur.filter(m=>m.t<now).length;
   if(n+pv.length<10)return MODELS[key]=null;
+  const pv2=R.prev2&&R.prev2.matches.length?R.prev2.matches.map(m=>Object.assign({prev:true},m)):[];
   const md=TLM.fit(pv.concat(cur),{now,halfLife:hl,prevTeams:pv.length?new Set(R.prev.teams):null});md.games=n;md.prevSeason=pv.length?R.prev.season:null;
+  md.el=TLM.elo(pv2.concat(pv,cur),{now});md.eloSeasons=md.el.seasons+1;
   return MODELS[key]=md}
 function baseXG(f,hl,asOf){
   hl=hl||halfLife(DEF.formW);
@@ -643,8 +688,8 @@ function baseXG(f,hl,asOf){
     if(mh&&ma&&mh.T[f.h.id]&&ma.T[f.a.id]){const sH=Math.log(LEAGUE_STRENGTH[ch]||.8),sA=Math.log(LEAGUE_STRENGTH[ca]||.8),mu=(mh.mu+ma.mu)/2,hf=(mh.hfa+ma.hfa)/2*.85,th=mh.T[f.h.id],ta=ma.T[f.a.id];
       return{lh:Math.exp(mu+hf+th.a+ta.d+2*(sH-sA)),la:Math.exp(mu+ta.a+th.d+2*(sA-sH)),note:`Domestic ratings (${nameOf(ch)}, ${nameOf(ca)}), adjusted for league strength`,known:true,v2:true}}}
   else{const md=modelFor(f.lg,hl,asOf);
-    if(md){const e=TLM.expect(md,f.h.id,f.a.id);return{lh:e.lh,la:e.la,known:e.known,v2:true,
-      note:`Fitted on ${md.games} results this season${md.prevSeason?" + last season":""}; recent games count more (half-life ${hl} days); home edge ×${Math.exp(md.hfa).toFixed(2)}`}}}
+    if(md){const e=TLM.forecast(md,md.el,f.h.id,f.a.id);return{lh:e.lh,la:e.la,known:e.known,v2:true,rho:md.rho,parts:{dc:e.dc,elo:e.elo},
+      note:`Goals model fitted on ${md.games} results this season${md.prevSeason?" + last season":""} (half-life ${hl} days), blended 50/50 with Elo ratings from ${md.eloSeasons} season${md.eloSeasons>1?"s":""}; home edge ×${Math.exp(md.hfa).toFixed(2)}`}}}
   return oldBaseXG(f)}
 function oldBaseXG(f){
   const rh=RATING[f.h.id],ra=RATING[f.a.id];
@@ -679,8 +724,8 @@ function predict(f,c){
   if(c.defH||c.defA)push("Missing defenders / GK",Math.pow(1.07,c.defA),Math.pow(1.07,c.defH),c.defH+" home, "+c.defA+" away");
   const rm={lenient:1.02,normal:1,strict:.98}[c.ref];if(rm!==1)push("Referee style",rm,rm,c.ref==="strict"?"More stoppages and cards":"Game flows; fewer stoppages");
   if(c.derby)push("Derby / high stakes",.95,.95,"Tighter, more cautious, more fouls");
-  const lh=clamp(b.lh*mh,.1,6),la=clamp(b.la*ma,.1,6),grid=b.v2?TLM.scoreGrid(lh,la,TLM.P.rho):scoreGrid(lh,la),mk=TLM.markets(grid);
-  return{f,lh,la,baseH:b.lh,baseA:b.la,baseNote:b.note,known:b.known,F,grid,mk,blend:{p1:mk.p1,px:mk.px,p2:mk.p2},
+  const lh=clamp(b.lh*mh,.1,6),la=clamp(b.la*ma,.1,6),grid=b.v2?TLM.scoreGrid(lh,la,b.rho!=null?b.rho:TLM.P.rho):scoreGrid(lh,la),mk=TLM.markets(grid);
+  return{f,lh,la,baseH:b.lh,baseA:b.la,baseNote:b.note,known:b.known,parts:b.parts||null,F,grid,mk,blend:{p1:mk.p1,px:mk.px,p2:mk.p2},
     cards:3.9*{lenient:.85,normal:1,strict:1.2}[c.ref]*(c.derby?1.25:1),corners:10.1*Math.sqrt((lh+la)/2.7),c};
 }
 /* In-play: goals come faster late in games and stoppage time adds minutes, so the remaining share isn't linear */
@@ -783,7 +828,7 @@ function computeTrack(){
     const ms=R.matches.slice().sort((x,y)=>x.t-y.t);const A={n:0,hit:0,rps:0,ll:0,brps:0,ou:0};let cnt=[0,0,0];
     for(const m of ms){const as=dayStart(m.t),md=modelFor(c,hl,as);
       const tot=cnt[0]+cnt[1]+cnt[2],bp=tot>=20?cnt.map(x=>x/tot):[.44,.26,.30],y=m.hg>m.ag?0:m.hg===m.ag?1:2;
-      if(md&&md.T[m.h]&&md.T[m.a]){const e=TLM.expect(md,m.h,m.a),mk=TLM.markets(TLM.scoreGrid(e.lh,e.la,TLM.P.rho)),p=[mk.p1,mk.px,mk.p2];
+      if(md&&md.T[m.h]&&md.T[m.a]){const mk=TLM.markets(TLM.forecast(md,md.el,m.h,m.a).grid),p=[mk.p1,mk.px,mk.p2];
         const rps=q=>{const a=q[0]-(y===0),b=q[0]+q[1]-(y<=1);return(a*a+b*b)/2};
         A.n++;A.hit+=p.indexOf(Math.max(...p))===y;A.rps+=rps(p);A.brps+=rps(bp);A.ll-=Math.log(Math.max(p[y],1e-6));A.ou+=(mk.ou[2.5]>.5)===(m.hg+m.ag>2.5);
         p.forEach((q,i)=>{const b=Math.min(9,Math.floor(q*10));cal[b].p+=q;cal[b].y+=i===y;cal[b].n++});
@@ -809,7 +854,7 @@ document.addEventListener("click",e=>{if(e.target.id!=="trackbtn")return;e.targe
 function openFx(id){const f=FIX.find(x=>x.id===id);if(!f||isDone(f)||isOff(f))return;selFx=id;location.hash="analyzer";fillFxSelect();onFixtureChange()}
 function clickFx(e){const t=e.target.closest("[data-tb]");if(t){tbComp=t.dataset.tb;selTeam=null;return}const r=e.target.closest("[data-fx]");if(r)openFx(r.dataset.fx)}
 ["fxlist","nextup","insights"].forEach(id=>{$(id).addEventListener("click",clickFx);$(id).addEventListener("keydown",e=>{if(e.key==="Enter")clickFx(e)})});
-$("lgchips").addEventListener("click",e=>{const b=e.target.closest("[data-k]");if(!b)return;lgFilter=b.dataset.k;$("scanout").innerHTML=`<p class="muted">Ready to scan ${lgFilter==="all"?"all competitions":esc(nameOf(lgFilter))}.</p>`;renderMatches()});
+$("lgchips").addEventListener("click",e=>{const b=e.target.closest("[data-k]");if(!b)return;lgFilter=b.dataset.k;if(!showScan())$("scanout").innerHTML=`<p class="muted">Ready to scan ${lgFilter==="all"?"all competitions":esc(nameOf(lgFilter))}.</p>`;renderMatches()});
 
 /* ---------- AI (via this app's server) ---------- */
 /* ---------- storage, settings ---------- */
@@ -859,21 +904,33 @@ async function refreshResults(code){
   const out=ms.map(m=>{names[m.homeTeam.id]=m.homeTeam.name;names[m.awayTeam.id]=m.awayTeam.name;return{id:m.id,h:m.homeTeam.id,a:m.awayTeam.id,hg:m.score.fullTime.home,ag:m.score.fullTime.away,t:Date.parse(m.utcDate)}});
   const season=(j.filters&&+j.filters.season)||(j.matches&&j.matches[0]&&j.matches[0].season&&+String(j.matches[0].season.startDate).slice(0,4))||guessSeason(code);
   const old=C.results[code];
-  C.results[code]={season,matches:out,names,updated:new Date().toISOString(),prev:old&&old.prev&&old.prev.season===season-1?old.prev:null,prevTried:old&&old.season===season?old.prevTried:0};
+  C.results[code]={season,matches:out,names,updated:new Date().toISOString(),prev:old&&old.prev&&old.prev.season===season-1?old.prev:null,prev2:old&&old.prev2&&old.prev2.season===season-2?old.prev2:null,prevTried:old&&old.season===season?old.prevTried:0};
 }
-/* Last season's results anchor ratings early in a season. Tries the free openfootball mirror first (no API quota), then football-data.org. */
+/* Past seasons anchor the ratings early in a season. The free openfootball mirror is tried first (no API quota),
+   then football-data.org for last season. The season before last is used only to warm up the Elo ratings. */
 const OPENF={PL:"en.1",PD:"es.1",BL1:"de.1",SA:"it.1",FL1:"fr.1",ELC:"en.2",DED:"nl.1",PPL:"pt.1"};
 const normName=s=>String(s||"").normalize("NFD").replace(/[̀-ͯ]/g,"").toLowerCase().replace(/&/g,"and").replace(/\b(fc|afc|cf|sc|ac|ssc|as|ss|us|ud|cd|rc|rcd|sd|club|de|calcio|football|futbol|1)\b/g,"").replace(/[^a-z0-9]/g,"");
+const nameTokens=s=>new Set(String(s||"").normalize("NFD").replace(/[̀-ͯ]/g,"").toLowerCase().split(/[^a-z0-9]+/).filter(t=>t.length>2&&!/^(fc|afc|club|calcio|futbol|football|\d+)$/.test(t)));
+function openfIds(R){const exact={},norm={},cand=[];
+  const reg=(id,n)=>{if(!n)return;exact[n]=id;norm[normName(n)]=id;cand.push({id,tk:nameTokens(n)})};
+  Object.keys(R.names).forEach(id=>reg(+id,R.names[id]));Object.values(TEAMS).forEach(t=>{if(t&&t.id&&exact[t.name]==null)reg(t.id,t.name)});
+  const memo={};
+  return n=>{if(memo[n]!==undefined)return memo[n];let id=exact[n]!=null?exact[n]:norm[normName(n)];
+    if(id==null){const tk=nameTokens(n);let best=0,bid=null,tie=false; // renamed clubs: share of distinctive words in common
+      for(const c of cand){let k=0;tk.forEach(t=>{if(c.tk.has(t))k++});const sc=k/Math.max(1,Math.min(tk.size,c.tk.size));if(sc>best){best=sc;bid=c.id;tie=false}else if(sc===best&&sc>0&&c.id!==bid)tie=true}
+      id=best>=.67&&!tie?bid:"x:"+n}
+    return memo[n]=id}}
+async function openfSeason(code,y,idOf){if(!OPENF[code])return null;
+  try{const r=await fetch(`https://raw.githubusercontent.com/openfootball/football.json/master/${y}-${String((y+1)%100).padStart(2,"0")}/${OPENF[code]}.json`);if(!r.ok)return null;
+    const j=await r.json();const ms=(j.matches||[]).filter(m=>m.score&&Array.isArray(m.score.ft)).map(m=>({h:idOf(m.team1),a:idOf(m.team2),hg:m.score.ft[0],ag:m.score.ft[1],t:Date.parse(m.date+"T12:00:00Z")}));
+    return ms.length>=50?ms:null}catch(e){return null}}
 async function refreshPrev(code){
-  const R=C.results[code];if(!R||!R.season)return;R.prevTried=Date.now();const y=R.season-1;let ms=null,src="";
-  if(OPENF[code]){try{const r=await fetch(`https://raw.githubusercontent.com/openfootball/football.json/master/${y}-${String((y+1)%100).padStart(2,"0")}/${OPENF[code]}.json`);
-    if(r.ok){const j=await r.json(),exact={},norm={};
-      const reg=(id,n)=>{if(!n)return;exact[n]=id;norm[normName(n)]=id};Object.keys(R.names).forEach(id=>reg(+id,R.names[id]));Object.values(TEAMS).forEach(t=>{if(t&&t.id&&exact[t.name]==null)reg(t.id,t.name)});
-      const idOf=n=>exact[n]!=null?exact[n]:norm[normName(n)]!=null?norm[normName(n)]:"x:"+n;
-      ms=(j.matches||[]).filter(m=>m.score&&Array.isArray(m.score.ft)).map(m=>({h:idOf(m.team1),a:idOf(m.team2),hg:m.score.ft[0],ag:m.score.ft[1],t:Date.parse(m.date+"T12:00:00Z")}));src="openfootball"}}catch(e){}}
-  if(!ms||ms.length<50){try{const j=await fd(`/competitions/${code}/matches?season=${y}&status=FINISHED`);
-    ms=(j.matches||[]).filter(fixRes).map(m=>({h:m.homeTeam.id,a:m.awayTeam.id,hg:m.score.fullTime.home,ag:m.score.fullTime.away,t:Date.parse(m.utcDate)}));src="football-data.org"}catch(e){ms=null}}
-  if(ms&&ms.length>=50)R.prev={season:y,matches:ms,teams:[...new Set(ms.flatMap(m=>[m.h,m.a]))],src};
+  const R=C.results[code];if(!R||!R.season)return;R.prevTried=Date.now();const y=R.season-1,idOf=openfIds(R);
+  if(!R.prev){let ms=await openfSeason(code,y,idOf),src="openfootball";
+    if(!ms){try{const j=await fd(`/competitions/${code}/matches?season=${y}&status=FINISHED`);
+      ms=(j.matches||[]).filter(fixRes).map(m=>({h:m.homeTeam.id,a:m.awayTeam.id,hg:m.score.fullTime.home,ag:m.score.fullTime.away,t:Date.parse(m.utcDate)}));src="football-data.org"}catch(e){ms=null}}
+    if(ms&&ms.length>=50)R.prev={season:y,matches:ms,teams:[...new Set(ms.flatMap(m=>[m.h,m.a]))],src}}
+  if(!R.prev2){const ms=await openfSeason(code,y-1,idOf);if(ms)R.prev2={season:y-1,matches:ms}}
 }
 function liveSoon(){const now=Date.now();return C.matches.some(m=>["IN_PLAY","PAUSED","LIVE"].includes(m.status)||(Math.abs(new Date(m.utc)-now)<2.5*3600e3&&m.status!=="FINISHED"))}
 function publish(){
@@ -895,7 +952,7 @@ async function refreshAll(force){
     for(const c of SET.comps){const cp=C.comps[c];
       if(!cp||Date.now()-Date.parse(cp.updated)>15*60e3){try{await refreshStandings(c)}catch(e){logErr("table "+c,e)}publish()}}
     for(const c of SET.comps){const r=C.results[c];
-      if(r&&!r.prev&&Date.now()-(r.prevTried||0)>24*3600e3){await refreshPrev(c);publish()}}
+      if(r&&(!r.prev||(!r.prev2&&OPENF[c]))&&Date.now()-(r.prevTried||0)>24*3600e3){await refreshPrev(c);publish()}}
   }finally{busy=false;$("refresh").classList.remove("spin")}
 }
 function setFresh(){$("fresh").innerHTML=C.matchesUpdated?`<b>●</b> ${fmtTime(new Date(C.matchesUpdated))}`:(SET.fdKey?"Loading…":"No data key")}
@@ -913,46 +970,88 @@ Be specific and numerical. Compare model probabilities with any bookmaker prices
 For a full analysis use these headings, each on its own line starting with "## ": Verdict, Key factors, Markets worth a look, Risks, Stake guidance. Use short "- " bullets. Stay under 280 words. For follow-up questions, answer briefly and directly.`,
   scan:`You are Touchline's football betting analyst. The user sends upcoming fixtures with Touchline's model numbers (win/draw/loss %, expected goals, over 2.5 %, both-teams-to-score %, form and table position). Work only from that data.
 Pick the 3 to 5 most interesting betting angles. For each give the match, the selection, the probability you'd use, the minimum decimal odds needed for value (1 / probability), and one line on the main risk. Then a short paragraph on what to check before betting (team news, lineups, prices). Never guarantee outcomes; recommend small fixed stakes.
-Format: "## Top angles" with "- " bullets, then "## Before you bet". Under 260 words.`};
+Where the goals model and Elo disagree strongly, treat that match as less certain. Format: "## Top angles" with "- " bullets, then "## Before you bet". Under 220 words.`};
 const GEM="https://generativelanguage.googleapis.com/v1beta";
-async function callGemini(key,model,system,messages,maxTokens){
-  const r=await fetch(`${GEM}/models/${encodeURIComponent(model)}:generateContent`,{method:"POST",headers:{"x-goog-api-key":key,"content-type":"application/json"},
-    body:JSON.stringify({system_instruction:system?{parts:[{text:system}]}:undefined,
-      contents:messages.map(m=>({role:m.role==="assistant"?"model":"user",parts:[{text:m.content}]})),
-      generationConfig:{maxOutputTokens:maxTokens||2048,temperature:.6}})});
-  const j=await r.json().catch(()=>({}));
-  if(!r.ok){const m=(j.error&&j.error.message)||("error "+r.status);
-    const err=new Error(r.status===429?"The Gemini free quota is used up for now. Wait a minute (or until tomorrow for the daily limit) and try again.":
-      /API key not valid|API_KEY_INVALID/i.test(m)?"The Gemini API key was rejected. Check it in Settings.":
-      r.status===404?`The model "${model}" isn't available to your key. Pick another with Load models in Settings.`:"The AI request failed: "+m);err.status=r.status;throw err}
-  const c=(j.candidates||[])[0];
-  const text=c&&c.content&&(c.content.parts||[]).map(x=>x.text||"").join("");
-  if(!text){const why=(j.promptFeedback&&j.promptFeedback.blockReason)||(c&&c.finishReason)||"no text";throw new Error(`Gemini returned no answer (${why}). Try again or rephrase.`)}
-  return text;
-}
-async function callClaude(key,model,system,messages,maxTokens){
-  const r=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",
-    headers:{"x-api-key":key,"anthropic-version":"2023-06-01","content-type":"application/json","anthropic-dangerous-direct-browser-access":"true"},
-    body:JSON.stringify({model,max_tokens:maxTokens||1000,system,messages})});
-  const j=await r.json().catch(()=>({}));
-  if(!r.ok){const m=j&&j.error&&j.error.message||("error "+r.status);
-    throw new Error(r.status===401?"The Claude API key was rejected. Check it in Settings.":r.status===429?"The Claude API is rate limiting requests. Wait a minute and try again.":"The AI request failed: "+m)}
-  return (j.content||[]).filter(x=>x.type==="text").map(x=>x.text).join("");
-}
+/* The APK routes fetch through native HTTP, which waits for the whole reply. The WebView's own fetch can stream,
+   so AI calls try it first and fall back to the native route if the request can't be made that way. */
+const webFetch=(typeof window!=="undefined"&&window.CapacitorWebFetch)||fetch;
+const AI_IDLE_MS=35000; // give up if no new text arrives for this long
+/* Thinking: Gemini 3+ takes thinkingLevel, 2.5 takes thinkingBudget. Low thinking keeps answers quick. */
+function gemThinking(model){const m=String(model||"").toLowerCase();
+  if(/gemini-2\.5-pro/.test(m))return{thinkingBudget:128};
+  if(/gemini-2\.5/.test(m))return{thinkingBudget:0};
+  if(/gemini-(1|2\.0)/.test(m))return null;
+  return{thinkingLevel:"low"}}
+function gemErr(status,j,model){const m=(j&&j.error&&j.error.message)||("error "+status);
+  const err=new Error(status===429?"The Gemini free quota is used up for now. Wait a minute (or until tomorrow for the daily limit) and try again.":
+    /API key not valid|API_KEY_INVALID/i.test(m)?"The Gemini API key was rejected. Check it in Settings.":
+    status===404?`The model "${model}" isn't available to your key. Pick another with Load models in Settings.`:"The AI request failed: "+m);err.status=status;err.raw=m;return err}
+function gemBody(system,messages,maxTokens,thinking){const gc={maxOutputTokens:maxTokens||4096,temperature:.5};if(thinking)gc.thinkingConfig=thinking;
+  return JSON.stringify({system_instruction:system?{parts:[{text:system}]}:undefined,contents:messages.map(m=>({role:m.role==="assistant"?"model":"user",parts:[{text:m.content}]})),generationConfig:gc})}
+const gemText=j=>{const c=(j.candidates||[])[0];return c&&c.content?(c.content.parts||[]).filter(x=>!x.thought).map(x=>x.text||"").join(""):""};
+/* Reads a server-sent-events reply, calling onData for each JSON event. Works whether the body streams or arrives whole. */
+async function readSSE(r,onData,ctl){
+  const handle=buf=>{const parts=buf.split(/\r?\n\r?\n/),rest=parts.pop();for(const ev of parts){const d=ev.split(/\r?\n/).filter(l=>l.startsWith("data:")).map(l=>l.slice(5).trim()).join("");
+      if(d&&d!=="[DONE]"){let j=null;try{j=JSON.parse(d)}catch(e){}if(j)onData(j)}}return rest};
+  if(r.body&&r.body.getReader){const rd=r.body.getReader(),dec=new TextDecoder();let buf="";ctl.reader=rd;
+    for(;;){const{done,value}=await rd.read();if(done)break;ctl.kick();buf=handle(buf+dec.decode(value,{stream:true}))}handle(buf+"\n\n")}
+  else handle((await r.text())+"\n\n")}
+/* One AI request with streaming, an idle timeout and a Stop button. onText gets the text so far. */
+async function aiRequest(prov,key,model,system,messages,maxTokens,onText,ctl){
+  ctl=ctl||{};const ac=new AbortController();let timer=null,timedOut=false;
+  // aborting also cancels the stream reader, so a stalled reply can't keep the request open
+  ctl.abort=()=>{ac.abort();try{ctl.reader&&ctl.reader.cancel().catch(()=>{})}catch(e){}};
+  ctl.kick=()=>{clearTimeout(timer);timer=setTimeout(()=>{timedOut=true;ctl.abort()},AI_IDLE_MS)};ctl.kick();
+  let text="";const add=t=>{if(t){text+=t;onText&&onText(text)}};
+  const go=async(useWeb,thinking)=>{const F=useWeb?webFetch:fetch;
+    if(prov==="claude"){
+      const r=await F("https://api.anthropic.com/v1/messages",{method:"POST",signal:ac.signal,
+        headers:{"x-api-key":key,"anthropic-version":"2023-06-01","content-type":"application/json","anthropic-dangerous-direct-browser-access":"true"},
+        body:JSON.stringify({model,max_tokens:maxTokens||1200,system,messages,stream:true})});
+      if(!r.ok){const j=await r.json().catch(()=>({}));const m=j&&j.error&&j.error.message||("error "+r.status);
+        throw new Error(r.status===401?"The Claude API key was rejected. Check it in Settings.":r.status===429?"The Claude API is rate limiting requests. Wait a minute and try again.":"The AI request failed: "+m)}
+      await readSSE(r,ev=>{if(ev.type==="content_block_delta"&&ev.delta&&ev.delta.type==="text_delta")add(ev.delta.text);if(ev.type==="error")throw new Error("The AI request failed: "+(ev.error&&ev.error.message||"stream error"))},ctl);
+    }else{
+      const r=await F(`${GEM}/models/${encodeURIComponent(model)}:streamGenerateContent?alt=sse`,{method:"POST",signal:ac.signal,headers:{"x-goog-api-key":key,"content-type":"application/json"},body:gemBody(system,messages,maxTokens,thinking)});
+      if(!r.ok){const j=await r.json().catch(()=>({}));throw gemErr(r.status,j,model)}
+      let why="";await readSSE(r,ev=>{add(gemText(ev));const c=(ev.candidates||[])[0];if(c&&c.finishReason)why=c.finishReason;if(ev.promptFeedback&&ev.promptFeedback.blockReason)why=ev.promptFeedback.blockReason},ctl);
+      if(!text)throw new Error(`Gemini returned no answer (${why||"no text"}). Try again or rephrase.`);
+    }};
+  try{
+    const thinking=prov==="claude"?null:gemThinking(model);
+    try{await go(true,thinking)}
+    catch(e){if(ac.signal.aborted||text)throw e;
+      // a rejected thinking setting: retry once without it
+      if(thinking&&e.status===400&&/thinking/i.test(e.raw||"")){await go(true,null)}
+      // the WebView couldn't make the request (e.g. blocked cross-origin): use the app's native route
+      else if(e instanceof TypeError&&webFetch!==fetch){await go(false,thinking)}
+      else throw e}
+  }catch(e){
+    if(ac.signal.aborted){if(timedOut&&!ctl.stopped)throw new Error(text?"The AI stopped sending text. The answer above may be incomplete; try again.":"The AI didn't answer within "+Math.round(AI_IDLE_MS/1000)+" seconds. Try again, or pick a faster model in Settings.");if(ctl.stopped)return text}
+    throw e}
+  finally{clearTimeout(timer)}
+  return text}
+/* Plain one-shot calls, kept for the Settings key test */
+async function callGemini(key,model,system,messages,maxTokens){return aiRequest("gemini",key,model,system,messages,maxTokens)}
+async function callClaude(key,model,system,messages,maxTokens){return aiRequest("claude",key,model,system,messages,maxTokens)}
 const aiReady=()=>SET.aiProvider==="claude"?!!SET.aiKey:!!SET.geminiKey;
+let aiCtl=null;
 async function streamAI(outEl,btn,payload){
   if(!aiReady()){outEl.innerHTML=`<p class="muted">Add your ${SET.aiProvider==="claude"?"Claude":"free Gemini"} API key in <a href="#settings">Settings</a> to use the AI analyst.</p>`;return""}
-  const label=btn.textContent;btn.textContent="Thinking…";btn.dataset.busy="1";btn.disabled=true;
-  const t0=Date.now();outEl.innerHTML=`<p class="muted" id="aitick">Thinking…</p>`;
-  const tick=setInterval(()=>{const el=outEl.querySelector("#aitick");if(el)el.textContent=`Thinking… ${Math.round((Date.now()-t0)/1000)}s`},1000);
-  let text="";
+  if(aiCtl){aiCtl.stopped=true;aiCtl.abort&&aiCtl.abort()} // only one AI request at a time
+  const ctl=aiCtl={};const label=btn.textContent;btn.textContent="Stop";btn.dataset.busy="1";btn.classList.add("stop");
+  const onStop=e=>{e.stopImmediatePropagation();ctl.stopped=true;ctl.abort&&ctl.abort()};btn.addEventListener("click",onStop,{capture:true});
+  const t0=Date.now();outEl.innerHTML=`<p class="muted" id="aitick">Asking the AI…</p>`;
+  const tick=setInterval(()=>{const el=outEl.querySelector("#aitick");if(el)el.textContent=`Asking the AI… ${Math.round((Date.now()-t0)/1000)}s`},1000);
+  let text="",shown=0;
+  const onText=t=>{text=t;const now=Date.now();if(now-shown>120){shown=now;outEl.innerHTML=md(t)+`<p class="muted ai-cursor">Writing…</p>`}};
   try{
-    text=SET.aiProvider==="claude"?await callClaude(SET.aiKey,SET.model,SYSTEM[payload.mode],payload.messages)
-      :await callGemini(SET.geminiKey,SET.geminiModel||"gemini-flash-latest",SYSTEM[payload.mode],payload.messages);
-    outEl.innerHTML=md(text);
-  }catch(e){outEl.innerHTML=`<p class="muted">${e.message&&e.message!=="Failed to fetch"?esc(e.message):"Couldn't reach the AI service. Check your internet connection and try again."}</p>`;text=""}
-  finally{clearInterval(tick);btn.textContent=label;btn.disabled=false;delete btn.dataset.busy}
-  return text;
+    text=await aiRequest(SET.aiProvider,SET.aiProvider==="claude"?SET.aiKey:SET.geminiKey,SET.aiProvider==="claude"?SET.model:(SET.geminiModel||"gemini-flash-latest"),SYSTEM[payload.mode],payload.messages,payload.maxTokens,onText,ctl);
+    outEl.innerHTML=text?md(text)+(ctl.stopped?`<p class="muted">Stopped.</p>`:""):`<p class="muted">Stopped.</p>`;
+  }catch(e){const msg=e.message&&!/Failed to fetch|NetworkError|Load failed/i.test(e.message)?e.message:"Couldn't reach the AI service. Check your internet connection and try again.";
+    outEl.innerHTML=(text?md(text):"")+`<p class="muted">${esc(msg)}</p>`;text=""}
+  finally{clearInterval(tick);btn.removeEventListener("click",onStop,{capture:true});btn.textContent=label;btn.classList.remove("stop");delete btn.dataset.busy;if(aiCtl===ctl)aiCtl=null}
+  return ctl.stopped?"":text;
 }
 
 /* ---------- head-to-head ---------- */
@@ -1052,7 +1151,7 @@ $("s-test").addEventListener("click",async function(){
   if(fdk){try{const r=await fetch(FD+"/competitions/PL",{headers:{"X-Auth-Token":fdk}});res.push(r.ok?"Match data key works.":`Match data key failed (${r.status}).`)}catch{res.push("Couldn't reach football-data.org.")}}
   else res.push("No match data key entered.");
   const prov=$("s-prov").value,gk=$("s-gkey").value.trim(),gm=$("s-gmodel").value.trim()||"gemini-flash-latest";
-  if(prov==="gemini"){if(gk){try{await callGemini(gk,gm,"",[{role:"user",content:"Reply with the single word OK."}],64);res.push(`Gemini key works with ${gm}.`)}catch(e){res.push(e.message||"Couldn't reach Gemini.")}}
+  if(prov==="gemini"){if(gk){try{await callGemini(gk,gm,"",[{role:"user",content:"Reply with the single word OK."}],256);res.push(`Gemini key works with ${gm}.`)}catch(e){res.push(e.message||"Couldn't reach Gemini.")}}
     else res.push("No Gemini key entered; the AI analyst stays off.")}
   else{if(aik){try{await callClaude(aik,$("s-model").value,undefined,[{role:"user",content:"Reply OK"}],5);res.push("Claude API key works.")}catch(e){res.push(e.message||"Couldn't reach the Claude API.")}}
     else res.push("No Claude API key entered; the AI analyst stays off.")}
@@ -1065,14 +1164,23 @@ function teamCtx(t){const r=RATING[t.id];
   const x=r.total;return{name:t.name,league:`${nameOf(r.comp)}: position ${x.pos}, P${x.p} W${x.w} D${x.d} L${x.l}, GF ${x.gf} GA ${x.ga}, ${x.pts} pts`,
     form_last5:x.form||"n/a",home_record:`P${r.home.p} GF ${r.home.gf} GA ${r.home.ga}`,away_record:`P${r.away.p} GF ${r.away.gf} GA ${r.away.ga}`,
     ratings:{home_attack:+r.attH.toFixed(2),home_defence:+r.defH.toFixed(2),away_attack:+r.attA.toFixed(2),away_defence:+r.defA.toFixed(2)},recent_results:res}}
-$("scanbtn").addEventListener("click",function(){
+/* AI value scan: a compact table of the nearest fixtures keeps the request small and quick. The last scan is kept. */
+const SCAN_MAX=15;
+let SCANS=lsGet("touchline.scans",{});
+function scanKey(){return lgFilter}
+function showScan(){const sc=SCANS[scanKey()],el=$("scanout");if(!el)return;
+  if(sc&&Date.now()-sc.at<6*3600e3){el.innerHTML=md(sc.text)+`<p class="note">Scanned ${fmtDay(new Date(sc.at))} ${fmtTime(new Date(sc.at))} · ${sc.n} fixtures. Tap the button to scan again.</p>`;return true}
+  return false}
+$("scanbtn").addEventListener("click",async function(){
   if(this.dataset.busy)return;
-  const list=FIX.filter(f=>f.st==="NS"&&(lgFilter==="all"||f.lg===lgFilter)).slice(0,30);
+  const list=FIX.filter(f=>f.st==="NS"&&(lgFilter==="all"||f.lg===lgFilter)).slice(0,SCAN_MAX);
   if(!list.length){$("scanout").innerHTML=`<p class="muted">No upcoming fixtures to scan.</p>`;return}
-  const data=list.map(f=>{const p=predict(f),rh=RATING[f.h.id],ra=RATING[f.a.id];return{match:`${f.h.name} v ${f.a.name}`,competition:nameOf(f.lg),kickoff:f.t.toISOString(),
-    home_pos:rh?rh.total.pos:null,away_pos:ra?ra.total.pos:null,home_form:rh?rh.total.form:null,away_form:ra?ra.total.form:null,
-    model_1x2:[+(p.mk.p1*100).toFixed(1),+(p.mk.px*100).toFixed(1),+(p.mk.p2*100).toFixed(1)],xg:[+p.lh.toFixed(2),+p.la.toFixed(2)],over25:+(p.mk.ou[2.5]*100).toFixed(1),btts:+(p.mk.btts*100).toFixed(1)}});
-  streamAI($("scanout"),this,{mode:"scan",messages:[{role:"user",content:"Upcoming fixtures:\n"+JSON.stringify(data)}]});
+  const rows=list.map(f=>{const p=predict(f),rh=RATING[f.h.id],ra=RATING[f.a.id],r=x=>Math.round(x*100);
+    const parts=p.parts&&p.parts.elo?` | parts goals ${p.parts.dc.map(r).join("/")} elo ${p.parts.elo.map(r).join("/")}`:"";
+    return `${f.h.name} v ${f.a.name} | ${f.lg} ${f.t.toISOString().slice(5,16).replace("T"," ")} | pos ${rh?rh.total.pos:"-"} v ${ra?ra.total.pos:"-"} | form ${rh&&rh.total.form?rh.total.form.replace(/,/g,""):"-"} v ${ra&&ra.total.form?ra.total.form.replace(/,/g,""):"-"} | 1X2 ${r(p.mk.p1)}/${r(p.mk.px)}/${r(p.mk.p2)} | xG ${p.lh.toFixed(2)}-${p.la.toFixed(2)} | O2.5 ${r(p.mk.ou[2.5])} | BTTS ${r(p.mk.btts)}${parts}`});
+  const key=scanKey(),n=list.length;
+  const text=await streamAI($("scanout"),this,{mode:"scan",maxTokens:2048,messages:[{role:"user",content:`Upcoming fixtures (percentages are Touchline's model; "parts" shows its goals model and Elo separately):\nmatch | league kickoff UTC | table positions | last-5 form | 1X2 % | expected goals | over 2.5 % | both score %\n`+rows.join("\n")}]});
+  if(text){SCANS[key]={text,at:Date.now(),n};lsSet("touchline.scans",SCANS);$("scanout").insertAdjacentHTML("beforeend",`<p class="note">Scanned just now · ${n} fixtures.</p>`)}
 });
 
 /* ---------- analyzer ---------- */
@@ -1118,6 +1226,7 @@ function renderAnalyzer(){
       <div><small>Over 2.5</small><b>${pct((ip||p.mk).ou[2.5])}</b></div><div><small>Both score</small><b>${pct((ip||p.mk).btts)}</b></div>
       <div><small>Exp. cards</small><b>${p.cards.toFixed(1)}</b></div><div><small>Exp. corners</small><b>${p.corners.toFixed(1)}</b></div>
     </div>
+    ${p.parts&&p.parts.elo?`<p class="note">Model parts before your conditions: goals model ${p.parts.dc.map(x=>pct(x)).join(" / ")} · Elo ${p.parts.elo.map(x=>pct(x)).join(" / ")}. A big gap between them means the result is less certain than one number suggests.</p>`:""}
     ${p.known?"":`<p class="sticky-note">One of these clubs has no domestic table loaded, so the model treats it as league-average. Weigh the AI's view and team news more heavily here.</p>`}
   </div>
   <div class="ai">
@@ -1164,7 +1273,8 @@ async function askAI(f,p,q,btn){
     model_ratings:(()=>{const md=!CUPS.has(f.lg)&&modelFor(f.lg,halfLife(c.formW));if(!md)return"n/a";const r=id=>md.T[id]?{attack:+Math.exp(md.T[id].a).toFixed(2),defence_conceding:+Math.exp(md.T[id].d).toFixed(2)}:"no data";return{note:"1.00 = league average; attack above 1 scores more, defence_conceding below 1 concedes less",home:r(f.h.id),away:r(f.a.id),league_home_edge:+Math.exp(md.hfa).toFixed(2)}})(),
     model_vs_market:(()=>{const bl=blendWith([p.mk.p1,p.mk.px,p.mk.p2],[book.home,book.draw,book.away]);if(!bl)return"no full 1X2 prices entered";const mk=TLM.devig([book.home,book.draw,book.away]);
       return{market_no_margin:mk.map(x=>pct(x,1)),blended:bl.map(x=>pct(x,1)),note:"Blend = 40% model + 60% market. Prefer the blend for edges; big model-vs-market gaps usually mean team news the model can't see."}})(),
-    model_track_record:"Backtested on 6,948 top-5 league matches (2022-26): well calibrated, picks the right 1X2 result 53% of the time. Bookmaker closing prices are usually slightly sharper.",
+    model_parts:p.parts&&p.parts.elo?{goals_model_1x2:p.parts.dc.map(x=>pct(x,1)),elo_1x2:p.parts.elo.map(x=>pct(x,1)),note:"The final numbers blend these two 50/50. Disagreement between them signals uncertainty."}:"goals model only",
+    model_track_record:"Model v3 backtested on 6,948 top-5 league matches (2022-26), tuned on 2022-24 and tested on 2024-26: well calibrated, picks the right 1X2 result about 54% of the time. Bookmaker closing prices are usually slightly sharper.",
     head_to_head:h2hCtx(f),
     bookmaker_decimal_odds:Object.keys(book).length?book:"not entered"};
   if(!q||aiFor!==f.id){aiThread=[{role:"user",content:"Analyze this match.\nMATCH DATA:\n"+JSON.stringify(ctx)+(q?"\n\nMy question: "+q:"")}]}
@@ -1227,7 +1337,7 @@ const CapApp=window.Capacitor&&window.Capacitor.Plugins&&window.Capacitor.Plugin
 if(CapApp){CapApp.addListener("backButton",()=>{if(current!=="matches")location.hash="matches";else CapApp.exitApp()});CapApp.addListener("resume",()=>refreshAll())}
 document.addEventListener("visibilitychange",()=>{if(!document.hidden)refreshAll()});
 if(!SET.fdKey&&!location.hash)location.hash="settings";
-route();publish();refreshAll();
+route();publish();showScan();refreshAll();
 setInterval(()=>{if(!document.hidden)refreshAll()},30000);
 })();
 </script>

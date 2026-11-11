@@ -24,7 +24,7 @@ Use **Test keys** in Settings to check both.
 
 ## What's in the app
 
-- **Matches:** live and upcoming games with model probabilities and fair 1/X/2 odds, the next 8 matches as cards, quick insights (strongest favourite, most goals expected, closest call), recent results, and an AI value scan across all fixtures.
+- **Matches:** live and upcoming games with model probabilities and fair 1/X/2 odds, the next 8 matches as cards, quick insights (strongest favourite, most goals expected, closest call), recent results, and an AI value scan of the next 15 fixtures. The scan streams its answer as it's written, can be stopped, gives up after 35 seconds without new text, and keeps the last result for 6 hours.
 - **Analyze:** choose a match and set weather, pitch, crowd, altitude, rest days, missing attackers and defenders, referee style, derby status, recent form weighting and team news. You get expected goals, every factor's effect, a correct-score grid, goals and handicap markets, head-to-head history, and a value finder for your bookmaker's prices. During a match, probabilities update from the live score and minute.
 - **AI analyst:** a verdict, key factors, markets worth a look, risks and stake guidance for the selected match, with follow-up questions.
 - **Tables:** standings with goals, form and home/away splits, with each club's attack and defence ratings, fixtures and recent results.
@@ -32,7 +32,14 @@ Use **Test keys** in Settings to check both.
 
 ## How the model works
 
-Each club gets home and away attack and defence ratings from goals scored and conceded relative to its league average, shrunk toward average early in the season. Expected goals = league home average × home attack × away defence (and the reverse for the away side); Champions League ties use domestic ratings adjusted for league strength. Your conditions multiply expected goals, and a Poisson scoreline model with a low-score correction produces every market.
+Two independent ratings, combined:
+
+- **Goals model:** a time-weighted Dixon–Coles Poisson model gives every club attack and defence ratings from this season and last season's results (recent games count more).
+- **Elo ratings:** built from the last three seasons of results, with bigger wins moving ratings more and newly promoted clubs starting below average.
+
+The final forecast blends the two 50/50. Very high or very low expected-goal totals are pulled part of the way back toward the league average, because on their own they were overconfident on Over/Under. The home/away split of expected goals is then set so that one score grid reproduces the blended forecast, so every market (1X2, correct score, goals, handicaps) stays consistent. Your conditions multiply expected goals from there. Champions League ties use domestic goal ratings adjusted for league strength.
+
+The analyzer shows both parts separately; when they disagree a lot, treat the match as less certain.
 
 ## Develop locally
 
@@ -54,19 +61,22 @@ Builds are signed with a debug key that GitHub Actions keeps in its cache, so up
 
 The probabilities here are estimates and will often be wrong. Bet only what you can afford to lose, set limits before you start, and take a break if betting stops being fun.
 
-## Prediction model (v2) and backtest
+## Prediction model (v3) and backtest
 
-Touchline fits a time-weighted Dixon–Coles Poisson model on every finished league match this season plus last season (last season from the free [openfootball](https://github.com/openfootball/football.json) archive, falling back to football-data.org). Recent games count more (half-life 180 days by default, set by the form slider); newly promoted clubs start below average.
+Past seasons come from the free [openfootball](https://github.com/openfootball/football.json) archive (no API quota), falling back to football-data.org for last season. The goals model uses this season plus last season; Elo also uses the season before.
 
-Walk-forward test on 6,948 top-five-league matches, 2022-23 to 2025-26, each predicted using only results known before kick-off:
+Walk-forward test on 6,948 top-five-league matches, each predicted using only results known before kick-off. v3's new settings were tuned on 2022-24 only, so the 2024-26 row is a fair out-of-sample test:
 
 | Model | RPS (lower = better) | Log loss | Right result | Over/Under 2.5 log loss |
 |---|---|---|---|---|
 | Base rates only | 0.2317 | 1.069 | 44.5% | 0.687 |
 | Old Touchline model | 0.2165 | 1.029 | 49.4% | 0.702 |
-| **New model** | **0.2028** | **0.986** | **53.0%** | **0.682** |
+| Model v2 (goals model only) | 0.2028 | 0.986 | 53.0% | 0.682 |
+| **Model v3 (goals model + Elo)** | **0.2016** | **0.982** | **53.3%** | **0.678** |
+| v2, held-out 2024-26 only | 0.2051 | 0.984 | 53.7% | 0.683 |
+| **v3, held-out 2024-26 only** | **0.2037** | **0.979** | **53.9%** | **0.679** |
 
-The old model was overconfident (its 80–90% favourites won 75%) and its Over/Under 2.5 was worse than base rates. The new model is calibrated (70–80% predictions came in 74.5% of the time).
+v3 is best in the first eight matchdays of a season (RPS 0.196 vs 0.200), where Elo's longer memory helps most, and it is well calibrated: matches it rated 80–90% came in 83.9% of the time (v2: 80.3%). Things tested and rejected because they didn't beat v2 out of sample: capping big scorelines, a separate home advantage per club, and fitting the low-score correction per league.
 
 Re-run it: `sh backtest/fetch-data.sh && node backtest/backtest.js '{}' 2022-23,2023-24,2024-25,2025-26`. The backtest loads the model directly from `www/index.html`.
 

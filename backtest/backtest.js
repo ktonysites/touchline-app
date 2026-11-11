@@ -1,4 +1,5 @@
-// Walk-forward backtest: old Touchline model (standings-based) vs new TLM model.
+// Walk-forward backtest: old Touchline model (standings-based), model v2 (Dixon-Coles) and model v3 (the app's
+// current forecast: Dixon-Coles + Elo blend with goal-total shrink). v3 sees only last season + this season, like the app.
 // usage: node backtest.js [paramsJSON] [seasons]
 const fs=require("fs"),path=require("path"),TLM=require("./tlmodel.js");
 const D=path.join(__dirname,"data");
@@ -35,9 +36,10 @@ function score(A,mk,m){const y=m.hg>m.ag?0:m.hg===m.ag?1:2,p=[mk.p1,mk.px,mk.p2]
   p.forEach((q,i)=>{const b=Math.min(9,Math.floor(q*10));A.cal[b].p+=q;A.cal[b].y+=(i===y);A.cal[b].n++});A.draws.p+=p[1];A.draws.y+=y===1;A.n++}
 function fmt(A){const n=A.n;return{n,RPS:+(A.rps/n).toFixed(4),LogLoss:+(A.ll/n).toFixed(4),Brier:+(A.brier/n).toFixed(4),Acc:+(A.hit/n*100).toFixed(1),OU25_LL:+(A.ou/n).toFixed(4),DrawPred:+(A.draws.p/n*100).toFixed(1),DrawReal:+(A.draws.y/n*100).toFixed(1)}}
 
-function run(params,seasons,opts){opts=opts||{};const R={old:newAcc(),new:newAcc(),base:newAcc()};const byWeek={old:{},new:{}};
+function run(params,seasons,opts){opts=opts||{};const R={old:newAcc(),v2:newAcc(),new:newAcc(),base:newAcc()};const byWeek={old:{},new:{}};
   for(const s of seasons){const si=ALL.indexOf(s);for(const l of LG){
     const cur=load(s,l),prev=si>0?load(ALL[si-1],l):[];const prevTeams=new Set(prev.flatMap(m=>[m.h,m.a]));
+    const prev2=si>1&&!opts.noPrev2?load(ALL[si-2],l).map(m=>Object.assign({prev:true},m)):[]; // Elo warm-up only, like the app
     const prevM=opts.noPrev?[]:prev.map(m=>Object.assign({prev:true},m));
     // base rates from previous season
     const bp=prev.length?[prev.filter(m=>m.hg>m.ag).length,prev.filter(m=>m.hg===m.ag).length,prev.filter(m=>m.hg<m.ag).length].map(x=>x/prev.length):[.45,.26,.29];
@@ -45,10 +47,11 @@ function run(params,seasons,opts){opts=opts||{};const R={old:newAcc(),new:newAcc
     const days=[...new Set(cur.map(m=>m.day))];
     for(const d of days){const now=Date.parse(d+"T00:00:00Z"),todays=cur.filter(m=>m.day===d),prior=cur.filter(m=>m.t<now);
       if(opts.skipEarly&&prior.length<opts.skipEarly)continue;
-      const md=TLM.fit(prevM.concat(prior),Object.assign({now,prevTeams:opts.noPrev?null:prevTeams},params));
+      const fo=Object.assign({now,prevTeams:opts.noPrev?null:prevTeams},params),md=TLM.fit(prevM.concat(prior),fo),el=TLM.elo(prev2.concat(prevM,prior),fo);
       const wk=Math.min(5,Math.floor(prior.length/(cur.length/38)/8)); // season phase bucket (0-7,8-15,...)
       for(const m of todays){
-        const e=TLM.expect(md,m.h,m.a);const mk=TLM.markets(TLM.scoreGrid(e.lh,e.la,md.rho));score(R.new,mk,m);
+        const e=TLM.expect(md,m.h,m.a);score(R.v2,TLM.markets(TLM.scoreGrid(e.lh,e.la,md.rho)),m);
+        const mk=TLM.markets(TLM.forecast(md,el,m.h,m.a,params).grid);score(R.new,mk,m);
         const om=oldPredict(prior,m.h,m.a);score(R.old,om,m);
         score(R.base,{p1:bp[0],px:bp[1],p2:bp[2],ou:{2.5:bo}},m);
         for(const [k,v] of [["old",om],["new",mk]]){(byWeek[k][wk]=byWeek[k][wk]||newAcc());score(byWeek[k][wk],v,m)}
@@ -57,7 +60,7 @@ function run(params,seasons,opts){opts=opts||{};const R={old:newAcc(),new:newAcc
 module.exports={run,fmt,load};
 if(require.main===module){const params=JSON.parse(process.argv[2]||"{}"),seasons=(process.argv[3]||"2022-23,2023-24,2024-25").split(",");
   const {R,byWeek}=run(params,seasons,{noPrev:process.argv[4]==="noprev"});
-  console.table({baseline:fmt(R.base),old_model:fmt(R.old),new_model:fmt(R.new)});
+  console.table({baseline:fmt(R.base),old_model:fmt(R.old),model_v2:fmt(R.v2),model_v3:fmt(R.new)});
   const ph=["MD1-8","MD9-16","MD17-24","MD25-32","MD33+","MD33+"];
   console.log("RPS by season phase (lower is better):");Object.keys(byWeek.old).sort().forEach(k=>console.log(ph[k].padEnd(8),"old",fmt(byWeek.old[k]).RPS,"new",fmt(byWeek.new[k]).RPS,"n",byWeek.old[k].n));
   console.log("Calibration new (home/draw/away pooled): bucket predicted% real% n");R.new.cal.forEach((c,i)=>c.n&&console.log(`${i*10}-${i*10+10}%`.padEnd(9),(c.p/c.n*100).toFixed(1).padStart(5),(c.y/c.n*100).toFixed(1).padStart(5),c.n));
