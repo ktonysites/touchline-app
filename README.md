@@ -50,3 +50,15 @@ Run it yourself: `sh backtest/fetch-data.sh && node backtest/backtest.js` (it lo
 
 **Past predictions:** every league page has a *Past predictions* tab that re-predicts the last 8 weeks of matches with only the results known before
 each kick-off and marks each one won or lost, with the hit rate, exact scores and over/under record.
+
+## Optional Google sign-in (Firebase project `touchline2-72f1c`)
+
+Settings › Account › **Sign in with Google** saves bets, followed teams and leagues, the prediction record and settings to
+Firestore (`users/{uid}`), so they follow the user to other phones and the website. AI keys never leave the device. Signing in is optional;
+everything keeps working without it. Changes merge by item (removals are kept as small "tombstones" so an unfollow on one phone sticks).
+
+- **Website:** Google sign-in popup. `touchlineapp.netlify.app` must be in Firebase › Authentication › Settings › Authorized domains.
+- **Android app:** native Google sign-in through `@capacitor-firebase/authentication` (`skipNativeAuth`), then the web SDK signs in with that token.
+  Needs `android/app/google-services.json` from Firebase (Android app `com.ktonysites.touchline` with the build's SHA-1) and
+  `rgcfaIncludeGoogle = true` in `android/variables.gradle`.
+- **Database rules:** paste `firestore.rules` into Firebase › Firestore Database › Rules and publish.

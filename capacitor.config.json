@@ -11,6 +11,12 @@
       "insetsHandling": "native",
       "initialViewportFitValueHint": "cover",
       "style": "DARK"
+    },
+    "FirebaseAuthentication": {
+      "skipNativeAuth": true,
+      "providers": [
+        "google.com"
+      ]
     }
   }
 }
