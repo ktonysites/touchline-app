@@ -1,9 +1,16 @@
 {
-  "appId": "com.touchline.analytics",
+  "appId": "com.ktonysites.touchline",
   "appName": "Touchline",
   "webDir": "www",
-  "android": { "allowMixedContent": false },
+  "android": {
+    "allowMixedContent": false,
+    "backgroundColor": "#07090d"
+  },
   "plugins": {
-    "CapacitorHttp": { "enabled": true }
+    "SystemBars": {
+      "insetsHandling": "native",
+      "initialViewportFitValueHint": "cover",
+      "style": "DARK"
+    }
   }
 }
