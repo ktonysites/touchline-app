@@ -228,6 +228,12 @@ details.reg[open] summary::after{content:"–"}
 .betrow .acts{grid-column:1/-1;display:flex;gap:6px;flex-wrap:wrap;align-items:center}
 .betrow .acts input{width:80px;background:var(--card2);border:1px solid var(--line);border-radius:8px;padding:4px 8px}
 .st{font-size:11px;font-weight:800;text-transform:uppercase;padding:2px 8px;border-radius:999px;background:var(--card2);border:1px solid var(--line)}
+.psum{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;margin-bottom:12px}
+.psum .k{background:var(--card2);border:1px solid var(--line);border-radius:12px;padding:10px 12px}.psum .k small{display:block;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em}.psum .k b{font-size:22px}
+.prow{display:grid;grid-template-columns:1fr auto auto;gap:10px;align-items:center;padding:10px 12px;border-top:1px solid var(--line)}
+.prow .tm{display:flex;flex-direction:column;gap:4px;min-width:0}.prow .tm span{display:flex;align-items:center;gap:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.prow .pr{text-align:right;font-size:12px;color:var(--muted);line-height:1.35}.prow .pr b{color:var(--ink);font-size:14px}
+.pfil{display:flex;gap:6px;margin:0 0 10px}
 .st.won{color:var(--good);border-color:var(--good)}.st.lost{color:var(--bad);border-color:var(--bad)}.st.open{color:var(--warn);border-color:var(--warn)}
 svg.chart{width:100%;height:auto;margin-top:10px}
 svg.chart text{fill:var(--muted);font-size:11px}
@@ -529,7 +535,7 @@ body.booting{overflow:hidden}
       <button class="go" type="submit">Analyse with AI</button>
       <div class="sugg" id="sugg" role="listbox" hidden></div>
     </form>
-    <p class="proof" id="proof"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6"><path d="M3 17l6-6 4 4 8-8M15 7h6v6"/></svg><span>Back-tested on <b>2,074</b> top-league matches · beats table-and-form models</span></p>
+    <p class="proof" id="proof"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6"><path d="M3 17l6-6 4 4 8-8M15 7h6v6"/></svg><span>Back-tested on <b>5,485</b> top-league matches · see every past call in Leagues › Past predictions</span></p>
   </div>
   <div class="cov">220 competitions covered</div>
   <div class="marquee" aria-hidden="true"><div class="track" id="mtrack"></div></div>
@@ -696,7 +702,7 @@ function normSummary(j){
 
 /* ---------- model: Dixon–Coles Poisson from table + recent form ---------- */
 function pmf(k,l){let f=1;for(let i=2;i<=k;i++)f*=i;return Math.exp(-l)*Math.pow(l,k)/f}
-function scoreGrid(lh,la,N){N=N||10;const g=[];let tot=0;const rho=-.06;
+function scoreGrid(lh,la,N){N=N||10;const g=[];let tot=0;const rho=-.1;
   for(let i=0;i<N;i++){g[i]=[];for(let j=0;j<N;j++){let p=pmf(i,lh)*pmf(j,la);
     if(i===0&&j===0)p*=1-lh*la*rho;else if(i===0&&j===1)p*=1+lh*rho;else if(i===1&&j===0)p*=1+la*rho;else if(i===1&&j===1)p*=1-rho;g[i][j]=Math.max(p,0);tot+=g[i][j]}}
   for(let i=0;i<N;i++)for(let j=0;j<N;j++)g[i][j]/=tot;return g}
@@ -718,10 +724,14 @@ function leagueMu(table){if(!table)return 1.35;let gf=0,gp=0;table.forEach(g=>g.
 function fitSupremacy(total,t){let best=null;
   for(let sp=-3;sp<=3.001;sp+=.02){const lh=Math.max((total+sp)/2,.08),la=Math.max((total-sp)/2,.08),mk=markets(scoreGrid(lh,la,9));const e=(mk.p1-t.p1)**2+(mk.p2-t.p2)**2;if(!best||e<best.e)best={e,lh,la}}return best}
 function fitTotal(line,pOver){let best=null;for(let T=1;T<=5.001;T+=.05){let cdf=0;for(let k=0;k<=Math.floor(line);k++)cdf+=pmf(k,T);const e=(1-cdf-pOver)**2;if(!best||e<best.e)best={e,T}}return best.T}
-/* ---------- team ratings: opponent-adjusted, time-weighted, from 12 months of league results ----------
-   Back-tested on 2,074 top-league matches (2025-27): log loss 1.007 vs 1.016 for the table+form model,
+/* ---------- team ratings: opponent-adjusted, time-weighted, from 24 months of league results ----------
+   v2.2: 24 months of history (was 12), lighter shrinkage (K 6), an Elo rating blended in at 30%, very high or low
+   goal totals pulled 20% back towards the league average, and a stronger low-score correction (rho -0.10).
+   Walk-forward test on 5,485 top-five-league matches (2023-27): RPS 0.2001 vs 0.2023 for v2.1, log loss 0.987 vs 0.995,
+   over/under 2.5 log loss 0.677 vs 0.681; on 2025-27 alone (not used for tuning) RPS 0.2029 vs 0.2059.
+   Earlier note: back-tested on 2,074 top-league matches (2025-27): log loss 1.007 vs 1.016 for the table+form model,
    51.1% vs 49.8% winners picked, well calibrated. Settings below are the tuned ones. */
-const RT={half:300,K:10,newAtt:.75,newDef:1.25,goalScale:1.015,iters:40};
+const RT={half:300,K:6,newAtt:.75,newDef:1.25,goalScale:1.015,iters:40,shrink:.2,eloW:.3,eloK:20,eloHA:60,eloNew:60,eloDraw:.28,eloDrawW:280};
 const RATINGS={};
 const ymOf=d=>d.getFullYear()+String(d.getMonth()+1).padStart(2,"0");
 const histKey=lid=>"tl2.h."+lid;
@@ -731,7 +741,7 @@ async function getHistory(lid,onProgress){
   if(SNAP)return (SNAP.hist&&SNAP.hist[lid])||null;
   if(!LG[lid])return null;
   const key=histKey(lid),store=lsGet(key,{m:{},at:{}});store.at=store.at||{};
-  const now=new Date(),months=[];for(let i=11;i>=0;i--)months.push(ymOf(new Date(now.getFullYear(),now.getMonth()-i,1)));
+  const now=new Date(),months=[];for(let i=23;i>=0;i--)months.push(ymOf(new Date(now.getFullYear(),now.getMonth()-i,1)));
   const prev=ymOf(new Date(now.getFullYear(),now.getMonth()-1,1));
   const todo=months.filter(ym=>!(store.m[ym]&&(ym<prev||Date.now()-(store.at[ym]||0)<6*36e5)));
   const total=todo.length;let done=0;
@@ -763,10 +773,18 @@ function fitRatings(rows,now){
     let ma=0,md=0;for(let i=0;i<n;i++){ma+=att[i];md+=de[i]}ma/=n;md/=n;for(let i=0;i<n;i++){att[i]/=ma;de[i]/=md}
   }
   const R={muh:muh*RT.goalScale,mua:mua*RT.goalScale,games:rows.length,t:{}};
-  T.forEach((id,i)=>R.t[id]={att:att[i],def:de[i],g:games[i],n:played[i]});
+  const E=eloRatings(rows,now);
+  T.forEach((id,i)=>R.t[id]={att:att[i],def:de[i],g:games[i],n:played[i],elo:E[id]});
   const order=T.slice().sort((x,y)=>(R.t[y].att/R.t[y].def)-(R.t[x].att/R.t[x].def));order.forEach((id,i)=>R.t[id].rank=i+1);R.size=T.length;
   return R;
 }
+/* Elo from the same results: bigger wins move ratings more; clubs new to the league start below average */
+function eloRatings(rows,now){const r={};
+  rows.forEach(x=>{if(x[0]>=now)return;const rh=r[x[1]]??(1500-RT.eloNew),ra=r[x[2]]??(1500-RT.eloNew);
+    const e=1/(1+Math.pow(10,(ra-rh-RT.eloHA)/400)),res=x[3]>x[4]?1:x[3]===x[4]?.5:0,gd=Math.abs(x[3]-x[4]),k=RT.eloK*(gd<=1?1:gd===2?1.5:(11+gd)/8);
+    r[x[1]]=rh+k*(res-e);r[x[2]]=ra-k*(res-e)});return r}
+function eloProbs(eh,ea){const dr=eh-ea+RT.eloHA,pH=1/(1+Math.pow(10,-dr/400)),d=RT.eloDraw*Math.exp(-Math.pow(dr/RT.eloDrawW,2));
+  return{p1:Math.max(pH-d/2,.01),px:d,p2:Math.max(1-pH-d/2,.01)}}
 async function getRatings(lid,onProgress){
   const hit=RATINGS[lid];if(hit&&Date.now()-hit.at<36e5)return hit.R;
   const rows=await getHistory(lid,onProgress);const R=rows?fitRatings(rows,SNAP?SNAP.at:Date.now()):null;
@@ -808,7 +826,12 @@ function predict(m,S,table,RX){
   let mu=leagueMu(useTable),rh,ra,sh,sa,known,deep=false;
   if(RX&&RX.h){deep=true;rh=Object.assign({src:RX.src==="cross"?"cross-league ratings":"league ratings"},RX.h);ra=Object.assign({src:rh.src},RX.a);
     const muh=neutral?(RX.muh+RX.mua)/2:RX.muh,mua=neutral?(RX.muh+RX.mua)/2:RX.mua;mu=(RX.muh+RX.mua)/2;
-    sh=clamp(muh*rh.att*ra.def,.15,4.5);sa=clamp(mua*ra.att*rh.def,.12,4);known=!(rh.isNew&&ra.isNew)}
+    sh=clamp(muh*rh.att*ra.def,.15,4.5);sa=clamp(mua*ra.att*rh.def,.12,4);known=!(rh.isNew&&ra.isNew);
+    // very high or low totals were overconfident: pull them part of the way back to the league average
+    const avg=muh+mua,tot0=sh+sa,tot1=avg+(tot0-avg)*(1-RT.shrink);sh*=tot1/tot0;sa*=tot1/tot0;
+    // blend in Elo (30%), then re-fit the score grid so every market stays consistent
+    if(RX.src!=="cross"&&!neutral){const mk0=markets(scoreGrid(sh,sa,9)),ep=eloProbs(rh.elo??(1500-RT.eloNew),ra.elo??(1500-RT.eloNew)),w=RT.eloW;
+      const f=fitSupremacy(sh+sa,{p1:(1-w)*mk0.p1+w*ep.p1,p2:(1-w)*mk0.p2+w*ep.p2});sh=f.lh;sa=f.la}}
   else{rh=teamRates(m.h.id,useTable,S&&S.last5,mu);ra=teamRates(m.a.id,useTable,S&&S.last5,mu);
     const hf=neutral?1:1.12,af=neutral?1:.89;sh=clamp(mu*hf*rh.att*ra.def,.2,4.5);sa=clamp(mu*af*ra.att*rh.def,.15,4);known=rh.src!=="no data"&&ra.src!=="no data"}
   const statsMk=markets(scoreGrid(sh,sa));
@@ -1101,7 +1124,7 @@ function whyCard(m,P){
       ${f5(m.h)!=null?`<tr><td>Points, last 5</td><td>${f5(m.h)}</td><td>${f5(m.a)}</td></tr>`:""}
       ${rh!=null&&m.state==="pre"?`<tr><td>Days since last game</td><td>${rh}</td><td>${ra}</td></tr>`:""}
     </tbody></table>
-    <p class="note">Ratings come from ${P.RX.src==="cross"?`each team's own league (${esc(lgShort(P.RX.lid))} and ${esc(lgShort(P.RX.lidA))}), adjusted for league strength`:`every ${esc(lgShort(P.RX.lid))} result in the last 12 months, weighted towards recent games and adjusted for the opponents faced`}.
+    <p class="note">Ratings come from ${P.RX.src==="cross"?`each team's own league (${esc(lgShort(P.RX.lid))} and ${esc(lgShort(P.RX.lidA))}), adjusted for league strength`:`every ${esc(lgShort(P.RX.lid))} result in the last 24 months, weighted towards recent games and adjusted for the opponents faced`}.
       ${P.neutral?"Neutral venue.":`Home sides here score ${((P.RX.muh/P.RX.mua-1)*100).toFixed(0)}% more than visitors.`}
       ${P.gap!=null?` The stats model and the bookmaker differ by ${(P.gap*50).toFixed(0)} points on the result${P.gap>.16?" — a big gap, so check team news before trusting either":""}.`:""}</p>`;
   }else if(X.deepState==="loading"){body=`<p class="muted" id="deepnote">Loading league history to rate both teams…</p>`}
@@ -1266,7 +1289,58 @@ function trackRecord(){
   return `<table class="mk"><thead><tr><th>Forecaster</th><th>Matches</th><th>Winner right</th><th>Log loss</th></tr></thead><tbody>${rows.map(([n,r])=>`<tr><td>${n}</td><td class="tnum">${r.n}</td><td class="tnum">${pct(r.hit)}</td><td class="tnum">${r.ll.toFixed(3)}</td></tr>`).join("")}</tbody></table>
   ${sc2.length?`<p class="note">Predicted score exactly right ${exact} of ${sc2.length} times (${pct(exact/sc2.length)}). Exact scores are hard: 10–15% is a good rate.</p>`:""}
   ${ouHit!=null?`<p class="note">Over/under 2.5 called right ${pct(ouHit)} of the time (${ou.length} matches).</p>`:""}
-  <p class="note">Lower log loss is better. Back-tested on 2,074 top-league games, the stats model scored 1.007 (an average-only guess scores 1.078). Bookmakers usually score a little lower still, which is why Touchline blends the two. ${done.length<50?"Give it 50+ matches before reading much into these numbers.":""}</p>`;
+  <p class="note">Lower log loss is better. Back-tested on 5,485 top-league games, the stats model scored 0.987 (an average-only guess scores about 1.07). Bookmakers usually score a little lower still, which is why Touchline blends the two. ${done.length<50?"Give it 50+ matches before reading much into these numbers.":""}</p>`;
+}
+
+/* ---------- past predictions: recent league games re-predicted with only what was known before kick-off ---------- */
+const PAST={};let PFILT="all";
+async function pastPredictions(lid,days,onProgress){
+  days=days||56;const key=lid+"|"+days,hit=PAST[key];if(hit&&Date.now()-hit.at<36e5)return hit.v;
+  const rows=await getHistory(lid,onProgress);if(!rows||!rows.length)return null;
+  const now=SNAP?SNAP.at:Date.now(),cut=now-days*864e5,byDay={};
+  rows.filter(r=>r[0]>=cut&&r[0]<now).forEach(r=>{const d=new Date(r[0]);d.setHours(0,0,0,0);(byDay[+d]=byDay[+d]||[]).push(r)});
+  const out=[],fresh=()=>({att:RT.newAtt,def:RT.newDef,g:0,n:0,isNew:1});
+  for(const d of Object.keys(byDay).map(Number).sort((a,b)=>b-a)){
+    const R=fitRatings(rows,d);if(!R)continue;
+    for(const r of byDay[d]){
+      const RX={h:R.t[r[1]]||fresh(),a:R.t[r[2]]||fresh(),muh:R.muh,mua:R.mua,size:R.size,src:"league",lid};
+      let P;try{P=predict({id:"past"+r[0]+r[1],lid,state:"post",h:{id:r[1]},a:{id:r[2]},odds:null},null,null,RX)}catch(e){continue}
+      MATCH_SCORE={h:0,a:0};const ps=predScore(P),res=r[3]>r[4]?"1":r[3]===r[4]?"X":"2";
+      out.push({t:r[0],h:r[1],a:r[2],fs:[r[3],r[4]],ps:[ps.h,ps.a],pick:ps.res,pp:ps.pres,won:ps.res===res,exact:ps.h===r[3]&&ps.a===r[4],
+        ouPick:P.mk.ou[2.5]>=.5,ouWon:(P.mk.ou[2.5]>=.5)===(r[3]+r[4]>2.5),home:res==="1"})}
+    await sleep(0)}
+  out.sort((a,b)=>b.t-a.t);PAST[key]={at:Date.now(),v:out};return out;
+}
+function pastHTML(L){
+  const P=L.past;
+  if(P==="need")return `<div class="card"><p class="muted">To check past predictions, Touchline needs two years of ${esc(lgShort(L.lid))} results (about 8 MB, saved on this device).</p><button class="btn" data-pastload>Load results</button></div>`;
+  if(P==="loading"||P===undefined)return `<div class="card"><p class="muted">Re-predicting the last 8 weeks of matches${L.pastProg?` · ${esc(L.pastProg)}`:""}…</p></div><div class="skel"></div><div class="skel"></div>`;
+  if(!P||!P.length)return `<div class="card empty">No finished league matches in the last 8 weeks to check.</div>`;
+  const nm={};(L.table||[]).forEach(g=>g.rows.forEach(r=>nm[r.id]={name:r.name,short:r.short,abbr:r.abbr,logo:r.logo}));(L.fx||[]).forEach(m=>{nm[m.h.id]=nm[m.h.id]||m.h;nm[m.a.id]=nm[m.a.id]||m.a});
+  const T=id=>nm[id]||{name:"Team "+id,short:"Team "+id,abbr:"?"};
+  const n=P.length,won=P.filter(x=>x.won).length,ex=P.filter(x=>x.exact).length,ou=P.filter(x=>x.ouWon).length,home=P.filter(x=>x.home).length;
+  const pickTxt=x=>x.pick==="1"?T(x.h).short+" win":x.pick==="2"?T(x.a).short+" win":"Draw";
+  const list=P.filter(x=>PFILT==="all"||(PFILT==="won"?x.won:!x.won));
+  let lastDay="";
+  const rows=list.map(x=>{const day=fmtDate(x.t);const head=day!==lastDay?`<div style="padding:8px 12px 0;font-size:11px;color:var(--muted)">${esc(day)}</div>`:"";lastDay=day;
+    return head+`<div class="prow"><div class="tm"><span>${crest(T(x.h))}${esc(T(x.h).short)}</span><span>${crest(T(x.a))}${esc(T(x.a).short)}</span></div>
+      <div class="pr">Predicted <b>${x.ps[0]}–${x.ps[1]}</b><br>${esc(pickTxt(x))} · ${pct(x.pp)}<br>Final <b>${x.fs[0]}–${x.fs[1]}</b>${x.exact?' · exact':''}</div>
+      <span class="st ${x.won?"won":"lost"}">${x.won?"Won":"Lost"}</span></div>`}).join("");
+  return `<div class="psum">
+      <div class="k"><small>Results called</small><b>${won}/${n}</b> <span class="muted">${pct(won/n)}</span></div>
+      <div class="k"><small>Exact scores</small><b>${ex}</b> <span class="muted">${pct(ex/n)}</span></div>
+      <div class="k"><small>Over/under 2.5</small><b>${pct(ou/n)}</b></div>
+      <div class="k"><small>Always backing home</small><b>${pct(home/n)}</b></div></div>
+    <div class="pfil">${[["all","All "+n],["won","Won "+won],["lost","Lost "+(n-won)]].map(([k,t])=>`<button class="chip" aria-pressed="${PFILT===k}" data-pfil="${k}">${t}</button>`).join("")}</div>
+    <section class="lg">${rows||`<div class="card empty">Nothing here.</div>`}</section>
+    <p class="note">Every ${esc(lgShort(L.lid))} match from the last 8 weeks, re-predicted with only the results known before kick-off, using Touchline's stats model. Bookmaker prices from the time aren't stored, so live predictions (which blend them in) can differ slightly. "Won" means the predicted result (home win, draw or away win) was right. Draws are rarely the single likeliest result, so they are seldom predicted.</p>`;
+}
+async function loadPast(force){
+  const L=LEAGUE;if(!L||L.past==="loading")return;
+  if(!force&&!histCached(L.lid)&&dataSaver()){L.past="need";renderLeague();return}
+  L.past="loading";renderLeague();
+  try{L.past=await pastPredictions(L.lid,56,(d,t)=>{L.pastProg=`loading results ${d}/${t}`;if(CURRENT==="league"&&LTAB==="preds")renderLeague()})||[]}catch(e){L.past=[]}
+  if(CURRENT==="league"&&LEAGUE===L)renderLeague();
 }
 
 /* ---------- leagues ---------- */
@@ -1301,13 +1375,16 @@ function renderLeague(){
   if(L.loading){el.innerHTML=head+`<div class="skel"></div><div class="skel"></div><div class="skel"></div>`;return}
   const now=Date.now(),live=L.fx.filter(isLive),up=L.fx.filter(m=>m.state==="pre"&&!m.off).sort((a,b)=>a.t-b.t),res=L.fx.filter(m=>m.done).sort((a,b)=>b.t-a.t);
   const block=(title,ms)=>ms.length?`<section class="lg"><div class="lg-h"><span class="nm">${title}</span><span class="ct">${ms.length}</span></div>${ms.map(m=>`<div style="padding:4px 12px 0;font-size:11px;color:var(--muted)">${fmtDate(m.t)}</div>`+matchRow(m)).join("")}</section>`:"";
-  el.innerHTML=head+`<div class="tabs">${[["fixtures","Fixtures & results"],["table","Table"]].map(([k,t])=>`<button class="tab" data-ltab="${k}" aria-selected="${LTAB===k}">${t}</button>`).join("")}</div>
-  ${LTAB==="table"?(L.table?L.table.map(g=>tableHTML(g,Object.keys(FAV.teams))).join(""):`<div class="card empty">No table for this competition${SNAP?" in the preview":""}.</div>`)
+  const cupL=!!l.cup;if(cupL&&LTAB==="preds")LTAB="fixtures";
+  el.innerHTML=head+`<div class="tabs">${[["fixtures","Fixtures & results"],["table","Table"]].concat(cupL?[]:[["preds","Past predictions"]]).map(([k,t])=>`<button class="tab" data-ltab="${k}" aria-selected="${LTAB===k}">${t}</button>`).join("")}</div>
+  ${LTAB==="preds"?pastHTML(L):LTAB==="table"?(L.table?L.table.map(g=>tableHTML(g,Object.keys(FAV.teams))).join(""):`<div class="card empty">No table for this competition${SNAP?" in the preview":""}.</div>`)
    :(L.err?`<div class="card empty">Couldn't load fixtures. Check your connection.</div>`:(block("Live",live)+block("Upcoming",up.slice(0,40))+block("Results",res.slice(0,40)))||`<div class="card empty">No matches in the last 10 or next 14 days${SNAP?" in the preview":""}.</div>`)}`;
 }
 document.addEventListener("click",e=>{
   if(CURRENT!=="league")return;
-  const t=e.target.closest("[data-ltab]");if(t){LTAB=t.dataset.ltab;renderLeague();animateView();return}
+  const t=e.target.closest("[data-ltab]");if(t){LTAB=t.dataset.ltab;renderLeague();animateView();if(LTAB==="preds"&&LEAGUE&&LEAGUE.past===undefined)loadPast();return}
+  const pf=e.target.closest("[data-pfil]");if(pf){PFILT=pf.dataset.pfil;renderLeague();return}
+  if(e.target.closest("[data-pastload]")){loadPast(true);return}
   const f=e.target.closest("[data-favlg]");if(f){const id=f.dataset.favlg;if(FAV.leagues[id])delete FAV.leagues[id];else FAV.leagues[id]=1;saveFav();renderLeague()}
 });
 
@@ -1348,7 +1425,7 @@ function renderBets(fromSettle){
     ${SET.lossLimit>0?`<p class="note">Today's settled losses: ${todayLoss().toFixed(2)} of your ${SET.lossLimit} limit.</p>`:""}${chart}</div>
   <div class="card"><h3>Open</h3>${open.length?open.map(row).join(""):`<p class="muted">No open bets. In a match's Markets table, tap <b>Track</b> on a selection. Bets settle automatically after full time.</p>`}</div>
   ${BETS.length>open.length?`<div class="card"><h3>History</h3>${BETS.filter(b=>b.status!=="open").map(row).join("")}</div>`:""}
-  <div class="card"><h3>Model track record</h3>${trackRecord()}</div>
+  <div class="card"><h3>Model track record</h3>${trackRecord()}<p class="note">To see how the model did on recent games, open a league and choose <b>Past predictions</b>: every match of the last 8 weeks, won or lost.</p></div>
   <p class="resp">Track every bet, keep stakes small and fixed, and stop when it stops being fun. If betting is causing you problems, talk to someone you trust.</p>`;
   if(!fromSettle){settleBets();settlePreds()}
 }
@@ -1384,7 +1461,7 @@ function renderPrefs(){
     <div class="switch"><span>Show women's competitions</span><input type="checkbox" id="p-women"${SET.women?" checked":""}></div>
     <div class="switch"><span>Top leagues only (Matches)</span><input type="checkbox" id="p-top"${SET.topOnly?" checked":""}></div>
     <div class="field" style="margin-top:10px"><label for="p-deep">Team ratings data</label><select id="p-deep"><option value="auto"${SET.deep==="auto"?" selected":""}>Automatic (ask on mobile data saver)</option><option value="always"${SET.deep==="always"?" selected":""}>Always download</option><option value="ask"${SET.deep==="ask"?" selected":""}>Ask first</option></select>
-      <p class="note">A year of results per league is about 4 MB the first time, then a little each day. Saved on this device.</p></div>
+      <p class="note">Two years of results per league is about 8 MB the first time, then a little each day. Saved on this device.</p></div>
     <div class="field" style="margin-top:10px"><label for="p-ref">Live refresh every (seconds)</label><input id="p-ref" type="number" min="15" max="300" value="${SET.refresh}"></div></div>
   <div class="card"><h3>Following</h3>${Object.keys(FAV.teams).length?Object.entries(FAV.teams).map(([id,t])=>`<div class="switch"><span>${esc(t.name)}</span><button class="btn sm" data-unfav="${id}">Unfollow</button></div>`).join(""):`<p class="muted">Tap ☆ next to a team in a match to follow it.</p>`}</div>
   <div class="card"><h3>Data</h3><p class="muted" style="margin:0 0 8px">Scores, fixtures, odds, lineups and tables come from ESPN's public data for ${CAT.length} competitions. No key needed.</p>
@@ -1435,7 +1512,7 @@ document.addEventListener("click",e=>{const box=$("sugg");if(box&&!box.hidden&&!
 const SEEN={};let SEQ=false;
 const STEPS=[["Connecting to football data feeds",'<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M5 12a10 10 0 0 1 14 0M8.5 15.5a5 5 0 0 1 7 0"/><circle cx="12" cy="19" r="1.4" fill="currentColor"/></svg>'],
   ["Fetching team stats, form & lineups",'<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><circle cx="9" cy="8" r="3"/><circle cx="17" cy="9" r="2.5"/><path d="M3 20c0-3.3 2.7-6 6-6s6 2.7 6 6M15 20c0-2.2 1.3-4 3.5-4.6"/></svg>'],
-  ["Rating teams on 12 months of results",'<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg>'],
+  ["Rating teams on 24 months of results",'<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg>'],
   ["Running the prediction engine",'<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M13 2L4 14h7l-1 8 9-12h-7z"/></svg>']];
 function seqHTML(m0){const h=m0?m0.h:{name:"Home",short:"Home",abbr:"·"},a=m0?m0.a:{name:"Away",short:"Away",abbr:"·"};
   return `<button class="back" data-back>← Matches</button><div class="seq" id="seq"><div class="ttl"><span class="sp"></span>Analysing match</div>

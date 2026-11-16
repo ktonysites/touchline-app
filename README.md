@@ -30,3 +30,23 @@ The website at touchlineapp.netlify.app uses the same file: drag the new version
 ## Automatic builds (GitHub)
 
 Every push to `main` also builds an APK with GitHub Actions (`.github/workflows/android.yml`). Download it from the **Releases** section of this repository and install it the same way.
+
+## Prediction model (v2.2) and backtest
+
+Ratings come from the last **24 months** of league results (opponent-adjusted, time-weighted Poisson), blended 30% with an **Elo** rating,
+with very high or very low goal totals pulled 20% back towards the league average and a Dixon–Coles low-score correction of −0.10.
+Bookmaker prices are blended in on top when ESPN has them.
+
+Walk-forward test on 5,485 top-five-league matches (2023-27), each predicted using only results known before kick-off:
+
+| Model | RPS (lower = better) | Log loss | Right result | Over/Under 2.5 log loss |
+|---|---|---|---|---|
+| v2.1 (12 months) | 0.2023 | 0.995 | 52.0% | 0.681 |
+| **v2.2** | **0.2001** | **0.987** | **52.1%** | **0.677** |
+| v2.1, 2025-27 only | 0.2059 | 1.005 | 51.2% | 0.687 |
+| **v2.2, 2025-27 only** (not used for tuning) | **0.2029** | **0.995** | **51.8%** | **0.682** |
+
+Run it yourself: `sh backtest/fetch-data.sh && node backtest/backtest.js` (it loads the model straight from `www/index.html`).
+
+**Past predictions:** every league page has a *Past predictions* tab that re-predicts the last 8 weeks of matches with only the results known before
+each kick-off and marks each one won or lost, with the hit rate, exact scores and over/under record.
