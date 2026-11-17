@@ -1,0 +1,39 @@
+{
+  "project_info": {
+    "project_number": "621945968880",
+    "project_id": "touchline2-72f1c",
+    "storage_bucket": "touchline2-72f1c.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:621945968880:android:4a67591543863d7cdb4a35",
+        "android_client_info": {
+          "package_name": "com.ktonysites.touchline"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "621945968880-b1jdo0srjrb2215qoaulc44t8eumc15m.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyB2GjpKWO3q98mgytpTiqmC6I2iiqC_o-c"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "621945968880-b1jdo0srjrb2215qoaulc44t8eumc15m.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
