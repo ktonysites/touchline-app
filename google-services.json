@@ -14,6 +14,14 @@
       },
       "oauth_client": [
         {
+          "client_id": "621945968880-nsuih6j2vs3dr19dudtb1ivp22lrvtr9.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.ktonysites.touchline",
+            "certificate_hash": "b364afe5c6cf5a1df85d26a886130c41de6aee74"
+          }
+        },
+        {
           "client_id": "621945968880-b1jdo0srjrb2215qoaulc44t8eumc15m.apps.googleusercontent.com",
           "client_type": 3
         }
